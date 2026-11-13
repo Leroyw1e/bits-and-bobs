@@ -1,0 +1,217 @@
+/* ===== Bits and Bobs ===== */
+.ms-note { padding: 4px 0 12px; }
+.ms-view { padding: 0 !important; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ---------- board ---------- */
+.ms-board {
+	--ms-ink: var(--text-normal);
+	--ms-accent: var(--interactive-accent);
+	position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%;
+	outline: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.ms-viewport {
+	position: relative; flex: 1; min-height: 0; overflow: hidden;
+	touch-action: none; background-color: var(--background-primary); cursor: crosshair;
+}
+.ms-board.has-frame .ms-viewport { background-color: var(--background-secondary); }
+.ms-board.is-static .ms-viewport { cursor: default; background: transparent; }
+.ms-viewport[data-bg="grid"], .ms-frame[data-bg="grid"] {
+	background-image: linear-gradient(var(--background-modifier-border) 1px, transparent 1px), linear-gradient(90deg, var(--background-modifier-border) 1px, transparent 1px);
+}
+.ms-viewport[data-bg="dots"], .ms-frame[data-bg="dots"] { background-image: radial-gradient(circle, var(--text-faint) 1.2px, transparent 1.4px); }
+.ms-viewport[data-bg="lines"], .ms-frame[data-bg="lines"] { background-image: linear-gradient(var(--background-modifier-border) 1px, transparent 1px); }
+.ms-frame[data-bg] { background-size: 40px 40px; }
+.ms-board[data-tool="select"] .ms-viewport { cursor: default; }
+.ms-board[data-tool="hand"] .ms-viewport, .ms-board.is-panning .ms-viewport { cursor: grab; }
+.ms-board[data-tool="text"] .ms-viewport { cursor: text; }
+.ms-board[data-tool="eraser"] .ms-viewport { cursor: cell; }
+
+.ms-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+.ms-frame { position: absolute; left: 0; top: 0; background-color: var(--background-primary); box-shadow: 0 2px 14px rgba(0,0,0,.18); border-radius: 2px; }
+.ms-svg { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.ms-svg.is-hl { mix-blend-mode: multiply; opacity: .45; }
+.theme-dark .ms-svg.is-hl { mix-blend-mode: screen; opacity: .35; }
+.ms-text { position: absolute; line-height: 1.4; pointer-events: none; word-wrap: break-word; }
+.ms-text > :first-child { margin-top: 0; }
+.ms-text > :last-child { margin-bottom: 0; }
+.ms-text h1, .ms-text h2, .ms-text h3 { color: inherit; }
+.ms-text mjx-container { font-size: 110%; }
+.ms-image { position: absolute; pointer-events: none; }
+.ms-image img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 3px; }
+.ms-graph { position: absolute; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; pointer-events: none; overflow: hidden; }
+.ms-graph svg { display: block; }
+.ms-graph-grid line { stroke: var(--background-modifier-border); stroke-width: 1; }
+.ms-graph-axes line { stroke: var(--text-muted); stroke-width: 1.5; }
+.ms-graph-labels text { fill: var(--text-faint); font-size: 10px; font-family: var(--font-interface); }
+.ms-graph-curve { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+.ms-graph-legend { position: absolute; top: 6px; right: 8px; font-size: 12px; font-family: var(--font-monospace); text-align: right; background: var(--background-primary); padding: 2px 6px; border-radius: 4px; opacity: .92; }
+
+.ms-text-edit {
+	position: absolute; z-index: 5; min-height: 1.6em; resize: none; overflow: hidden;
+	font-family: var(--font-text); line-height: 1.4; padding: 2px 4px; margin: -3px -5px;
+	background: var(--background-primary); border: 2px solid var(--ms-accent); border-radius: 6px;
+	box-shadow: 0 4px 16px rgba(0,0,0,.15); user-select: text; -webkit-user-select: text;
+}
+.ms-sel-layer { position: absolute; left: 0; top: 0; pointer-events: none; }
+.ms-sel-box { position: absolute; border: calc(1.5px / var(--ms-z, 1)) solid var(--ms-accent); border-radius: calc(3px / var(--ms-z, 1)); margin: calc(-3px / var(--ms-z, 1)); padding: calc(3px / var(--ms-z, 1)); box-sizing: content-box; }
+.ms-sel-handle { position: absolute; width: calc(14px / var(--ms-z, 1)); height: calc(14px / var(--ms-z, 1)); margin: calc(-7px / var(--ms-z, 1)); background: var(--background-primary); border: calc(2px / var(--ms-z, 1)) solid var(--ms-accent); border-radius: 50%; }
+.ms-marquee { position: absolute; border: calc(1px / var(--ms-z, 1)) dashed var(--ms-accent); background: color-mix(in srgb, var(--ms-accent) 10%, transparent); }
+
+/* ---------- toolbar ---------- */
+.ms-toolbar {
+	display: flex; gap: 6px; align-items: center; padding: 6px 8px; flex-wrap: nowrap; overflow-x: auto;
+	border-bottom: 1px solid var(--background-modifier-border); background: var(--background-secondary);
+	scrollbar-width: none; flex-shrink: 0;
+}
+.ms-toolbar::-webkit-scrollbar { display: none; }
+.ms-tb-group { display: flex; gap: 2px; align-items: center; padding-right: 6px; border-right: 1px solid var(--background-modifier-border); flex-shrink: 0; }
+.ms-tb-group:last-child { border-right: none; }
+.ms-tb-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px; border-radius: 6px; min-width: 34px; min-height: 34px; justify-content: center; }
+.ms-tb-btn.is-active { background: var(--interactive-accent) !important; color: var(--text-on-accent) !important; }
+.ms-tb-btn.is-hidden { display: none; }
+.ms-tb-text { font-size: var(--font-ui-small); }
+.ms-swatch { width: 26px; height: 26px; min-width: 26px; padding: 0; border-radius: 50%; background: var(--sw) !important; border: 2px solid var(--background-primary); box-shadow: 0 0 0 1px var(--background-modifier-border); margin: 0 2px; }
+.ms-swatch.is-active { box-shadow: 0 0 0 2px var(--ms-accent); }
+.ms-size { width: 30px; height: 30px; min-width: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent !important; box-shadow: none !important; border-radius: 6px; }
+.ms-size span { display: block; border-radius: 50%; background: var(--text-muted); }
+.ms-size.is-active { background: var(--background-modifier-hover) !important; }
+.ms-size.is-active span { background: var(--text-normal); }
+.is-mobile .ms-tb-btn { min-width: 40px; min-height: 40px; }
+.is-mobile .ms-swatch { width: 30px; height: 30px; }
+
+/* ---------- embeds (notes & Canvas) ---------- */
+.ms-embed { position: relative; display: flex; flex-direction: column; height: 420px; border: 1px solid var(--background-modifier-border); border-radius: 8px; overflow: hidden; background: var(--background-primary); }
+.canvas-node-content .ms-embed, .canvas-node .ms-embed { height: 100%; border: none; border-radius: 0; }
+.ms-embed .ms-toolbar { padding: 4px; gap: 4px; }
+.ms-embed .ms-tb-btn { min-width: 30px; min-height: 30px; padding: 4px; }
+.ms-embed .ms-swatch { width: 22px; height: 22px; min-width: 22px; }
+.ms-embed-bar { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; font-size: var(--font-ui-small); color: var(--text-muted); background: var(--background-secondary); border-bottom: 1px solid var(--background-modifier-border); }
+.ms-sheet-embed { height: auto; max-height: 420px; }
+.ms-sheet-embed .ms-grid-wrap { overflow: auto; }
+.ms-slides-embed { height: auto; }
+.ms-slides-embed-box { position: relative; width: 100%; display: flex; }
+.ms-slides-embed-box .ms-board, .ms-thumb-box .ms-board { position: absolute; inset: 0; }
+
+/* ---------- slides ---------- */
+.ms-slides { flex-direction: row !important; }
+.ms-slide-side { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.ms-slide-sidebar-bar { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--background-modifier-border); }
+.ms-slide-sidebar-bar .mod-cta { background: var(--interactive-accent); color: var(--text-on-accent); }
+.ms-slide-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; outline: none; }
+.ms-thumb { display: flex; gap: 6px; cursor: pointer; align-items: flex-start; }
+.ms-thumb-num { font-size: var(--font-ui-smaller); color: var(--text-muted); width: 16px; text-align: right; padding-top: 2px; }
+.ms-thumb-box { position: relative; flex: 1; border-radius: 4px; overflow: hidden; border: 2px solid transparent; background: var(--background-primary); }
+.ms-thumb.is-active .ms-thumb-box { border-color: var(--interactive-accent); }
+.ms-slide-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ms-slide-board { flex: 1; min-height: 0; display: flex; }
+.ms-slide-notes { flex-shrink: 0; margin: 0; border-radius: 0; border: none; border-top: 1px solid var(--background-modifier-border); resize: vertical; min-height: 44px; padding: 8px 12px; font-size: var(--font-ui-small); background: var(--background-secondary); }
+.is-phone .ms-slides { flex-direction: column-reverse !important; }
+.is-phone .ms-slide-side { width: 100%; height: 130px; border-right: none; border-top: 1px solid var(--background-modifier-border); flex-direction: row; }
+.is-phone .ms-slide-list { flex-direction: row; overflow-x: auto; }
+.is-phone .ms-thumb { width: 140px; flex-shrink: 0; }
+.is-phone .ms-slide-sidebar-bar { flex-direction: column; border-bottom: none; }
+
+.ms-present { position: fixed; inset: 0; z-index: var(--layer-modal, 50); background: #000; display: flex; align-items: center; justify-content: center; }
+.ms-present-stage { position: absolute; inset: 0; display: flex; }
+.ms-present-stage .ms-board, .ms-present-stage .ms-viewport { background: #000 !important; }
+.ms-present-stage .ms-frame { box-shadow: none; }
+.ms-present-bar { position: absolute; bottom: 14px; right: 14px; display: flex; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 20px; background: rgba(40,40,40,.75); color: #fff; opacity: .25; transition: opacity .2s; z-index: 2; }
+.ms-present-bar:hover { opacity: 1; }
+.is-mobile .ms-present-bar { opacity: .8; }
+.ms-present-bar button { color: #fff; }
+.ms-present-count { font-size: 13px; min-width: 50px; text-align: center; }
+
+/* ---------- spreadsheet ---------- */
+.ms-sheet-toolbar { display: flex; gap: 2px; padding: 6px 8px; overflow-x: auto; flex-shrink: 0; background: var(--background-secondary); border-bottom: 1px solid var(--background-modifier-border); }
+.ms-formula-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--background-modifier-border); flex-shrink: 0; }
+.ms-ref-label { min-width: 64px; font-family: var(--font-monospace); font-size: var(--font-ui-small); color: var(--text-muted); }
+.ms-fx { font-style: italic; color: var(--text-faint); font-family: serif; }
+.ms-fbar { flex: 1; font-family: var(--font-monospace); }
+.ms-grid-wrap { flex: 1; overflow: auto; outline: none; min-height: 0; -webkit-overflow-scrolling: touch; }
+.ms-grid { border-collapse: separate; border-spacing: 0; font-size: var(--font-ui-small); table-layout: fixed; margin: 0; }
+.ms-grid th, .ms-grid td { border-right: 1px solid var(--background-modifier-border); border-bottom: 1px solid var(--background-modifier-border); height: var(--rh, 28px); padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-grid td { position: relative; cursor: cell; background: var(--background-primary); }
+.ms-grid th { background: var(--background-secondary); color: var(--text-muted); font-weight: 500; text-align: center; position: sticky; z-index: 1; user-select: none; }
+.ms-grid thead th { top: 0; z-index: 2; }
+.ms-grid tbody th { left: 0; min-width: 44px; }
+.ms-grid thead th.ms-corner { left: 0; z-index: 3; }
+.ms-grid th.is-hl { background: var(--background-modifier-hover); color: var(--text-normal); }
+.ms-grid td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.ms-grid td.is-err { color: var(--text-error); }
+.ms-grid td.is-selected { background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary)); }
+.ms-grid td.is-cursor { box-shadow: inset 0 0 0 2px var(--interactive-accent); }
+.ms-cell-edit { position: absolute; inset: 0; width: 100%; height: 100%; border: none !important; border-radius: 0 !important; box-shadow: inset 0 0 0 2px var(--interactive-accent) !important; padding: 0 6px; font-size: inherit; font-family: var(--font-monospace); background: var(--background-primary); z-index: 1; }
+.ms-sheet-tabs { display: flex; gap: 2px; padding: 4px 8px; border-top: 1px solid var(--background-modifier-border); background: var(--background-secondary); overflow-x: auto; flex-shrink: 0; }
+.ms-sheet-tab { padding: 4px 12px; font-size: var(--font-ui-small); background: transparent; box-shadow: none; border-radius: 4px; }
+.ms-sheet-tab.is-active { background: var(--background-primary); box-shadow: 0 1px 2px rgba(0,0,0,.1); font-weight: 600; }
+.ms-sheet-error { padding: 2em; color: var(--text-muted); }
+.ms-fn-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.ms-fn-row { display: flex; gap: 12px; justify-content: flex-start; text-align: left; height: auto; padding: 6px 10px; background: transparent; box-shadow: none; }
+.ms-fn-row:hover { background: var(--background-modifier-hover); }
+.ms-fn-name { font-family: var(--font-monospace); font-weight: 600; min-width: 90px; }
+.ms-fn-help { color: var(--text-muted); }
+
+/* ---------- maths palette & suggest ---------- */
+.ms-palette-modal { width: min(720px, 94vw); }
+.ms-palette-search { width: 100%; margin-bottom: 8px; }
+.ms-palette-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.ms-palette-tabs.is-hidden { display: none; }
+.ms-palette-tab { display: inline-flex; gap: 4px; align-items: center; font-size: var(--font-ui-small); padding: 4px 10px; }
+.ms-palette-tab.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+.ms-palette-tab svg { width: 14px; height: 14px; }
+.ms-palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; max-height: 55vh; overflow-y: auto; padding: 2px; }
+.ms-palette-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; height: 72px; padding: 4px; overflow: hidden; }
+.ms-palette-btn.is-first { box-shadow: 0 0 0 2px var(--interactive-accent); }
+.ms-palette-tex { font-size: 1.1em; max-width: 100%; overflow: hidden; }
+.ms-palette-tex mjx-container { margin: 0 !important; }
+.ms-palette-name { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ms-palette-tips { margin-top: 8px; font-size: var(--font-ui-smaller); color: var(--text-faint); }
+.ms-suggest { display: flex; align-items: center; gap: 12px; }
+.ms-suggest-tex { min-width: 60px; text-align: center; }
+.ms-suggest-tex mjx-container { margin: 0 !important; }
+.ms-suggest-name { color: var(--text-muted); font-size: var(--font-ui-small); }
+
+/* graph editor */
+.ms-graph-input { width: 100%; font-family: var(--font-monospace); margin: 8px 0 4px; }
+.ms-graph-status { color: var(--text-error); font-size: var(--font-ui-small); min-height: 1.2em; }
+.ms-graph-quick { display: flex; gap: 4px; flex-wrap: wrap; }
+.ms-graph-quick button { padding: 4px 10px; }
+.ms-graph-modal .ms-num { width: 64px; }
+
+/* status bar (bottom row on Mac) */
+.ms-statusbar { display: inline-flex; gap: 2px; padding: 0 !important; }
+.ms-sb-btn { display: inline-flex; align-items: center; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--text-muted); }
+.ms-sb-btn:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.ms-sb-btn svg { width: 14px; height: 14px; }
+
+/* settings */
+.ms-keys table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.ms-keys td { padding: 4px 6px; border-bottom: 1px solid var(--background-modifier-border); font-size: var(--font-ui-small); }
+.ms-keys td:last-child { text-align: right; }
+
+/* Canvas: let the Pencil draw straight onto a drawing card (drag the card by its title) */
+body.bb-canvas-draw .canvas-node:has(.ms-embed) .canvas-node-content-blocker { display: none; }
+
+/* slide layout picker */
+.ms-layout-modal { width: min(900px, 94vw); }
+.ms-layout-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; max-height: 70vh; overflow-y: auto; padding: 2px; }
+.ms-layout-card { display: flex; flex-direction: column; gap: 6px; height: auto; padding: 8px; align-items: stretch; }
+.ms-layout-preview { position: relative; aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden; background: var(--background-primary); border: 1px solid var(--background-modifier-border); pointer-events: none; }
+.ms-layout-preview .ms-board { position: absolute; inset: 0; }
+.ms-layout-name { font-size: var(--font-ui-small); text-align: center; }
+
+/* row / column resizing */
+.ms-col-resize { position: absolute; top: 0; right: -4px; width: 9px; height: 100%; cursor: col-resize; z-index: 4; touch-action: none; }
+.ms-row-resize { position: absolute; left: 0; bottom: -4px; height: 9px; width: 100%; cursor: row-resize; z-index: 4; touch-action: none; }
+.ms-col-resize:hover, .ms-row-resize:hover, .ms-resizing-col .ms-col-resize:active, .ms-resizing-row .ms-row-resize:active { background: color-mix(in srgb, var(--interactive-accent) 60%, transparent); }
+.is-mobile .ms-col-resize { width: 16px; right: -8px; }
+.is-mobile .ms-row-resize { height: 16px; bottom: -8px; }
+body.ms-resizing-col, body.ms-resizing-col * { cursor: col-resize !important; }
+body.ms-resizing-row, body.ms-resizing-row * { cursor: row-resize !important; }
+.ms-sheet { position: relative; }
+
+/* formula suggestions */
+.ms-fn-suggest { position: absolute; z-index: 20; min-width: 260px; max-width: 420px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: var(--shadow-l); padding: 4px; }
+.ms-fn-suggest-row { display: flex; gap: 10px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: var(--font-ui-small); }
+.ms-fn-suggest-row.is-selected, .ms-fn-suggest-row:hover { background: var(--background-modifier-hover); }
+.ms-fn-suggest-row .ms-fn-name { min-width: 80px; }
