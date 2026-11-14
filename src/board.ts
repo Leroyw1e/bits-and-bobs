@@ -958,7 +958,8 @@ export class Board extends Component {
 		const tool = matchTool(e);
 		if (tool) {
 			e.preventDefault(); e.stopPropagation();
-			if (tool.action) this.openPalette(tool.action === "greek" ? 1 : 0);
+			if (tool.special === "fraction") this.plugin.doFraction();
+			else if (tool.action) this.openPalette(tool.action === "greek" ? 1 : 0);
 			else this.newMath(tool.insert!);
 			return;
 		}
@@ -1031,7 +1032,8 @@ export class Board extends Component {
 			const t = matchTool(e);
 			if (t) {
 				e.preventDefault();
-				if (t.action) this.openPalette(t.action === "greek" ? 1 : 0);
+				if (t.special === "fraction") this.plugin.doFraction();
+				else if (t.action) this.openPalette(t.action === "greek" ? 1 : 0);
 				else insertInField(ta, t.insert!);
 				return;
 			}
@@ -1066,13 +1068,9 @@ export class Board extends Component {
 		this.refreshNode(el);
 	}
 
+	/** The symbols menu opens in the left sidebar; picking one adds it to the text you're typing, or makes a new maths box. */
 	openPalette(group = 0) {
-		const target = this.editing?.ta;
-		new MathPalette(this.plugin.app, (item) => {
-			if (target && target.isConnected) insertInField(target, item.insert);
-			else if (this.editing) insertInField(this.editing.ta, item.insert);
-			else this.newMath(item.insert);
-		}, group).open();
+		void this.plugin.openSymbols(group);
 	}
 
 	// ---------- graphs ----------

@@ -42,6 +42,9 @@ export interface BitsSettings {
 	sheetFormat: boolean;
 	sheetFill: boolean;
 	sheetCharts: boolean;
+	superscriptTyping: boolean;
+	autoSolve: boolean;
+	symbolsSidebar: boolean;
 	// other
 	homeButtons: boolean;
 	newFileFolder: string;
@@ -53,7 +56,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	fingerDraws: true, pencilOnlyAfterPen: true, pressure: true, penSize: 4, defaultBg: "grid", canvasDraw: true,
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true,
-	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true,
+	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, symbolsSidebar: true,
 	homeButtons: true, newFileFolder: "",
 };
 
@@ -87,6 +90,9 @@ export class BitsSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("Maths").setHeading();
 		toggle("mathShortcuts", "Keyboard shortcuts", "Use the shortcuts listed below in notes, boards and spreadsheets.", (v) => this.plugin.applyShortcuts(v));
 		feature("symbolSearch", "Symbol search while typing", "Type \\ then a name, such as \\alpha or \\frac, to pick a symbol.");
+		toggle("superscriptTyping", "Type ^ for small raised numbers", "In a note, x^2 becomes x² as you type, and 10^-3 becomes 10⁻³. It isn't used inside maths, code or spreadsheets.");
+		toggle("autoSolve", "Auto solve", "In a note, type a sum and then =, for example 12*(3+4)=, and the answer appears after it.");
+		toggle("symbolsSidebar", "Show the symbols menu in the left sidebar", "When off, the symbols menu opens as a pop-up instead.");
 		toggle("statusBar", "Maths buttons in the status bar", "The row of buttons at the bottom of the window on desktop.", () => this.plugin.setupStatusBar());
 		toggle("mobileToolbar", "Maths buttons in the mobile toolbar", "The row of buttons above the keyboard on iPad and iPhone.", (v) => (v ? this.plugin.addToMobileToolbar() : this.plugin.removeFromMobileToolbar()));
 

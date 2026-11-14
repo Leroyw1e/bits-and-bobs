@@ -33,7 +33,10 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 ### Maths in notes
 - Keyboard shortcuts for common maths (see below). You can turn them off in settings.
 - Type `\` then a name, such as `\alpha`, `\frac` or `\int`, to search symbols with a live preview.
-- A symbol picker with Basics, Greek, Calculus, Functions, Matrices, Sets & logic and Geometry.
+- **Symbols menu** in the left sidebar, with Basics, Greek, Calculus, Functions, Matrices, Sets & logic and Geometry. Click where you want it, then tap a symbol. It also works for text boxes on boards.
+- **Small raised numbers**: type `x^2` and it becomes x², `10^-3` becomes 10⁻³, and `n^(n+1)` becomes n⁽ⁿ⁺¹⁾. Only a `^` stuck to a number, letter or bracket is used, so block ids and footnotes are left alone, and it isn't used inside maths or code.
+- **Auto solve**: type a sum followed by `=` and the answer appears, for example `12*(3+4)=` gives 84 and `3²+4²=` gives 25.
+- **Fractions without braces**: the fraction button opens a small box with a top and a bottom. A number just before the cursor becomes the top, and a selected `3/4` turns into a fraction straight away.
 - Maths buttons in the status bar on desktop and in the toolbar above the keyboard on mobile.
 
 ### Canvas and embeds
@@ -63,7 +66,7 @@ All commands can also be given your own hotkeys in **Settings → Hotkeys**.
 
 ## Settings
 
-Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool, speaker notes, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
+Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, small raised numbers, auto solve, the symbols sidebar, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool, speaker notes, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
 
 ## Notes
 

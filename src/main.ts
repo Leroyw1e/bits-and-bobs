@@ -1,9 +1,13 @@
-import { Component, ItemView, Notice, Platform, Plugin, TFile, TFolder, normalizePath, setIcon } from "obsidian";
+import { Component, Editor, EditorPosition, ItemView, MarkdownView, Notice, Platform, Plugin, TFile, TFolder, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
 import { BoardView, SlidesView, VIEW_BOARD, VIEW_SLIDES, EXT_BOARD, EXT_SLIDES, boardEmbed, newSlide } from "./views";
 import { SheetView, VIEW_SHEET, EXT_SHEET, emptyXlsx, sheetEmbed } from "./sheet";
-import { MATH_TOOLS, MathPalette, MathSuggest, MathTool, insertInEditor, insertInField, matchTool, setShortcutsEnabled, shortcutLabel } from "./math";
+import { MATH_TOOLS, MathItem, MathPalette, MathSuggest, MathTool, insertInEditor, insertInField, insideMath, matchTool, setShortcutsEnabled, shortcutLabel } from "./math";
 import { Board } from "./board";
 import { BitsSettings, BitsSettingTab, DEFAULT_SETTINGS } from "./settings";
+import { SuperTyper } from "./superscript";
+import { solveLine } from "./autosolve";
+import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
+import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
 const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt", "subscript", "greek"];
@@ -13,6 +17,9 @@ export default class BitsAndBobs extends Plugin {
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
+	private superTyper = new SuperTyper();
+	/** the note or board you were last typing in (the symbols sidebar puts things there) */
+	private lastTarget: WorkspaceLeaf | null = null;
 
 	async onload() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -70,10 +77,19 @@ export default class BitsAndBobs extends Plugin {
 		this.registerDomEvent(window, "keydown", (e) => this.onKey(e));
 		// ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y on Windows) whenever a board, deck or spreadsheet is the active tab
 		this.registerDomEvent(window, "keydown", (e) => this.onUndoKey(e), { capture: true });
+		// the symbols menu lives in the left sidebar
+		this.registerView(VIEW_SYMBOLS, (leaf) => new SymbolsView(leaf, this));
+		this.addCommand({ id: "open-symbols", name: "Open the symbols menu", icon: "pi", callback: () => this.openSymbols(0) });
+		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this.trackTarget(leaf)));
+		// type ^ for small raised numbers, and = to solve a sum
+		this.registerDomEvent(document, "beforeinput", (e) => this.onBeforeInput(e as InputEvent), { capture: true });
+		this.registerDomEvent(document, "keydown", (e) => this.onTypingKey(e), { capture: true });
+		this.registerDomEvent(document, "pointerdown", () => this.superTyper.reset(), { capture: true });
 		this.addCommand({ id: "undo", name: "Undo on board, slide or spreadsheet", icon: "undo-2", checkCallback: (check) => this.undoRedo(false, check) });
 		this.addCommand({ id: "redo", name: "Redo on board, slide or spreadsheet", icon: "redo-2", checkCallback: (check) => this.undoRedo(true, check) });
 
 		this.app.workspace.onLayoutReady(() => {
+			this.trackTarget(this.app.workspace.getMostRecentLeaf());
 			this.setupStatusBar();
 			if (Platform.isMobile && st.mobileToolbar && !st.mobileToolbarAdded) this.addToMobileToolbar(true);
 			this.setupHomeButtons();
@@ -170,18 +186,110 @@ export default class BitsAndBobs extends Plugin {
 	runTool(t: MathTool) {
 		const editor = this.app.workspace.activeEditor?.editor;
 		const field = this.activeField();
-		if (t.action) {
-			const board = this.app.workspace.getActiveViewOfType(BoardView)?.board;
-			if (board && !field) { board.openPalette(t.action === "greek" ? 1 : 0); return; }
-			new MathPalette(this.app, (item) => {
-				if (field && field.isConnected) insertInField(field, item.insert);
-				else if (editor) insertInEditor(editor, item.insert);
-				else new Notice("Click into a note first, then pick a symbol.");
-			}, t.action === "greek" ? 1 : 0).open();
-			return;
-		}
+		if (t.special === "fraction") { this.doFraction(); return; }
+		if (t.action) { this.openSymbols(t.action === "greek" ? 1 : 0); return; }
 		if (field) insertInField(field, t.insert!);
 		else if (editor) insertInEditor(editor, t.insert!);
+	}
+
+	// ---------- the symbols menu in the left sidebar ----------
+	private trackTarget(leaf: WorkspaceLeaf | null) {
+		const v = leaf?.view;
+		if (leaf && (v instanceof MarkdownView || v instanceof BoardView || v instanceof SlidesView)) this.lastTarget = leaf;
+	}
+
+	async openSymbols(group = 0) {
+		const ws = this.app.workspace;
+		if (this.settings.symbolsSidebar) {
+			let leaf: WorkspaceLeaf | null = ws.getLeavesOfType(VIEW_SYMBOLS)[0] ?? null;
+			if (!leaf) {
+				leaf = ws.getLeftLeaf(false);
+				await leaf?.setViewState({ type: VIEW_SYMBOLS, active: true });
+			}
+			if (leaf) {
+				if (leaf.view instanceof SymbolsView) leaf.view.setGroup(group);
+				const back = this.lastTarget;
+				await ws.revealLeaf(leaf);
+				// hand the cursor back so you can carry on typing where you were
+				if (back && !Platform.isPhone) ws.setActiveLeaf(back, { focus: true });
+				return;
+			}
+		}
+		new MathPalette(this.app, (item) => this.insertSymbol(item), group).open();
+	}
+
+	/** Put a symbol where you were last typing: a board's text box, a note, or a new maths box on a board. */
+	insertSymbol(item: MathItem) {
+		if (item.special === "fraction") { this.doFraction(); return; }
+		const a = document.activeElement;
+		if (a instanceof HTMLTextAreaElement && a.classList.contains("ms-text-edit")) { insertInField(a, item.insert); return; }
+		const view = this.lastTarget?.view;
+		if (view instanceof MarkdownView && view.editor) { insertInEditor(view.editor, item.insert); return; }
+		if (view instanceof BoardView || view instanceof SlidesView) { view.board?.newMath(item.insert); return; }
+		const editor = this.app.workspace.activeEditor?.editor;
+		if (editor) { insertInEditor(editor, item.insert); return; }
+		new Notice("Click into a note or a board first, then pick a symbol.");
+	}
+
+	/** Fraction: the top and bottom are typed into a small box, so there are no braces to get wrong. */
+	doFraction() {
+		const a = document.activeElement;
+		if (a instanceof HTMLTextAreaElement && a.classList.contains("ms-text-edit")) { fractionInField(this.app, a); return; }
+		const view = this.lastTarget?.view;
+		if (view instanceof MarkdownView && view.editor) { fractionInEditor(this.app, view.editor); return; }
+		if (view instanceof BoardView || view instanceof SlidesView) { const b = view.board; if (b) fractionNewBox(this.app, (s) => b.newMath(s)); return; }
+		const editor = this.app.workspace.activeEditor?.editor;
+		if (editor) { fractionInEditor(this.app, editor); return; }
+		new Notice("Click into a note or a board first.");
+	}
+
+	// ---------- typing: ^ gives small raised numbers, = solves a sum ----------
+	private inCode(editor: Editor, cur: EditorPosition): boolean {
+		const lines = editor.getRange({ line: 0, ch: 0 }, cur).split("\n");
+		let fence = false;
+		for (let i = 0; i < lines.length - 1; i++) if (/^\s*(```|~~~)/.test(lines[i])) fence = !fence;
+		if (fence) return true;
+		if ((lines[lines.length - 1].match(/`/g) ?? []).length % 2 === 1) return true;
+		if (lines.length > 1 && lines[0].trim() === "---") { for (let i = 1; i < lines.length - 1; i++) if (lines[i].trim() === "---") return false; return true; }
+		return false;
+	}
+
+	private onTypingKey(e: KeyboardEvent) {
+		if (!this.superTyper.active) return;
+		if (e.key === "Backspace" && this.superTyper.pending) { e.preventDefault(); e.stopPropagation(); this.superTyper.reset(); return; } // cancels the ^
+		if (e.metaKey || e.ctrlKey || (e.key.length > 1 && !["Shift", "Alt", "CapsLock"].includes(e.key))) this.superTyper.reset();
+	}
+
+	private onBeforeInput(e: InputEvent) {
+		const st = this.settings;
+		if (e.inputType !== "insertText" || !e.data || e.data.length !== 1) { this.superTyper.reset(); return; }
+		if (!(e.target as HTMLElement | null)?.closest?.(".cm-content")) { this.superTyper.reset(); return; }
+		const c = e.data;
+		const wantsSuper = st.superscriptTyping && (this.superTyper.active || c === "^");
+		const wantsSolve = st.autoSolve && c === "=";
+		if (!wantsSuper && !wantsSolve) return;
+		const editor = this.app.workspace.activeEditor?.editor;
+		if (!editor || editor.somethingSelected()) { this.superTyper.reset(); return; }
+		const cur = editor.getCursor();
+		const line = editor.getLine(cur.line).slice(0, cur.ch);
+		const skip = () => insideMath(editor.getRange({ line: 0, ch: 0 }, cur)) || this.inCode(editor, cur);
+
+		if (wantsSuper) {
+			// only a ^ stuck to a number, letter or bracket (not a block id or a footnote)
+			const canStart = !this.superTyper.active && /[0-9A-Za-zͰ-Ͽ)\]]$/.test(line) && !skip();
+			const r = this.superTyper.handle(c, canStart);
+			if (r) {
+				if (r.swallow) { e.preventDefault(); e.stopPropagation(); }
+				if (r.insert) editor.replaceSelection(r.insert);
+				return;
+			}
+		}
+		if (wantsSolve) {
+			const answer = solveLine(line);
+			if (answer === null || skip()) return;
+			e.preventDefault(); e.stopPropagation();
+			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
+		}
 	}
 
 	// ---------- bottom row: Mac status bar ----------

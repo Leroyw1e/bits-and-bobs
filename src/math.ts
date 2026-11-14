@@ -4,7 +4,7 @@ import {
 } from "obsidian";
 
 /** "¦" marks where the cursor lands (and where selected text goes). */
-export interface MathItem { name: string; tex: string; insert: string; label?: string }
+export interface MathItem { name: string; tex: string; insert: string; label?: string; special?: "fraction" }
 export interface MathGroup { name: string; icon: string; items: MathItem[] }
 
 const I = (name: string, tex: string, insert?: string, label?: string): MathItem => ({ name, tex, insert: insert ?? tex + " ¦", label });
@@ -16,7 +16,7 @@ export const MATH_GROUPS: MathGroup[] = [
 			I("squared", "x^{2}", "^{2}¦", "squared"),
 			I("cubed", "x^{3}", "^{3}¦", "cubed"),
 			I("subscript", "x_{n}", "_{¦}", "subscript"),
-			I("frac", "\\frac{a}{b}", "\\frac{¦}{}", "fraction"),
+			{ ...I("frac", "\\frac{a}{b}", "\\frac{¦}{}", "fraction"), special: "fraction" },
 			I("sqrt", "\\sqrt{x}", "\\sqrt{¦}", "square root"),
 			I("nroot", "\\sqrt[n]{x}", "\\sqrt[¦]{}", "nth root"),
 			I("pm", "\\pm"), I("mp", "\\mp"), I("times", "\\times"), I("div", "\\div"), I("cdot", "\\cdot"),
@@ -98,13 +98,13 @@ export const MATH_GROUPS: MathGroup[] = [
 export const ALL_ITEMS: MathItem[] = MATH_GROUPS.flatMap((g) => g.items);
 
 /** Math tools that get keyboard shortcuts and bottom-row buttons. */
-export interface MathTool { id: string; name: string; icon: string; key: string; shift?: boolean; insert?: string; action?: "palette" | "greek" }
+export interface MathTool { id: string; name: string; icon: string; key: string; shift?: boolean; insert?: string; action?: "palette" | "greek"; special?: "fraction" }
 export const MATH_TOOLS: MathTool[] = [
 	{ id: "inline-math", name: "Inline maths  $x$", icon: "dollar-sign", key: "M", shift: true, insert: "$¦$" },
 	{ id: "math-block", name: "Maths block  $$ $$", icon: "square-function", key: "E", insert: "$$\n¦\n$$" },
 	{ id: "power", name: "Power  x^y", icon: "superscript", key: "P", insert: "^{¦}" },
 	{ id: "subscript", name: "Subscript  x_n", icon: "subscript", key: "B", insert: "_{¦}" },
-	{ id: "fraction", name: "Fraction  a/b", icon: "divide", key: "Q", insert: "\\frac{¦}{}" },
+	{ id: "fraction", name: "Fraction  a/b", icon: "divide", key: "Q", insert: "\\frac{¦}{}", special: "fraction" },
 	{ id: "sqrt", name: "Square root  √", icon: "radical", key: "R", insert: "\\sqrt{¦}" },
 	{ id: "sum", name: "Sum  Σ", icon: "sigma", key: "S", insert: "\\sum_{i=1}^{n} ¦" },
 	{ id: "integral", name: "Integral  ∫", icon: "spline", key: "N", insert: "\\int_{a}^{b} ¦ \\,dx" },
@@ -138,7 +138,7 @@ export function matchTool(e: KeyboardEvent): MathTool | null {
 
 // ---------- inserting ----------
 
-function insideMath(before: string): boolean {
+export function insideMath(before: string): boolean {
 	const blocks = (before.match(/\$\$/g) || []).length;
 	if (blocks % 2 === 1) return true;
 	const line = before.slice(before.lastIndexOf("\n") + 1).replace(/\\\$/g, "").replace(/\$\$/g, "");

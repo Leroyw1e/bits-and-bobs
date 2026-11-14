@@ -10,9 +10,9 @@ export const VIEW_SHEET = "math-studio-sheet";
 export const EXT_SHEET = "xlsx";
 
 interface SheetModel { name: string; raw: Map<string, string>; rows: number; cols: number; rowH: Map<number, number>; colW: Map<number, number>; fmt: Map<string, CellFmt>; charts: ChartDef[] }
-export const newSheetModel = (name: string): SheetModel => ({ name, raw: new Map(), rows: 40, cols: 12, rowH: new Map(), colW: new Map(), fmt: new Map(), charts: [] });
+export const newSheetModel = (name: string): SheetModel => ({ name, raw: new Map(), rows: MIN_ROWS, cols: 12, rowH: new Map(), colW: new Map(), fmt: new Map(), charts: [] });
 
-export const ROW_H = 28, COL_W = 96;
+export const ROW_H = 28, COL_W = 96, MIN_ROWS = 100;
 
 /** Loads an .xlsx into simple models and computes formulas. */
 export class Workbook {
@@ -50,7 +50,7 @@ export class Workbook {
 			(ws["!cols"] ?? []).forEach((c, i) => { const w = c?.wpx ?? (c?.wch ? c.wch * 7 + 5 : 0); if (w && !c.hidden) colW.set(i, Math.round(w)); });
 			const saved = meta?.sheets[name];
 				if (saved?.fmt) for (const [ref, f] of Object.entries(saved.fmt)) fmt.set(ref, f);
-				this.sheets.push({ name, raw, rows: Math.max(rows + 5, 40), cols: Math.max(cols + 2, 12), rowH, colW, fmt, charts: saved?.charts ?? [] });
+				this.sheets.push({ name, raw, rows: Math.max(rows + 5, MIN_ROWS), cols: Math.max(cols + 2, 12), rowH, colW, fmt, charts: saved?.charts ?? [] });
 		}
 	}
 
