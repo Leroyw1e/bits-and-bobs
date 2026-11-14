@@ -10,9 +10,9 @@ export const VIEW_SHEET = "math-studio-sheet";
 export const EXT_SHEET = "xlsx";
 
 interface SheetModel { name: string; raw: Map<string, string>; rows: number; cols: number; rowH: Map<number, number>; colW: Map<number, number>; fmt: Map<string, CellFmt>; charts: ChartDef[] }
-export const newSheetModel = (name: string): SheetModel => ({ name, raw: new Map(), rows: MIN_ROWS, cols: 12, rowH: new Map(), colW: new Map(), fmt: new Map(), charts: [] });
+export const newSheetModel = (name: string): SheetModel => ({ name, raw: new Map(), rows: MIN_ROWS, cols: MIN_COLS, rowH: new Map(), colW: new Map(), fmt: new Map(), charts: [] });
 
-export const ROW_H = 28, COL_W = 96, MIN_ROWS = 100;
+export const ROW_H = 28, COL_W = 96, MIN_ROWS = 200, MIN_COLS = 52;
 
 /** Loads an .xlsx into simple models and computes formulas. */
 export class Workbook {
@@ -50,7 +50,7 @@ export class Workbook {
 			(ws["!cols"] ?? []).forEach((c, i) => { const w = c?.wpx ?? (c?.wch ? c.wch * 7 + 5 : 0); if (w && !c.hidden) colW.set(i, Math.round(w)); });
 			const saved = meta?.sheets[name];
 				if (saved?.fmt) for (const [ref, f] of Object.entries(saved.fmt)) fmt.set(ref, f);
-				this.sheets.push({ name, raw, rows: Math.max(rows + 5, MIN_ROWS), cols: Math.max(cols + 2, 12), rowH, colW, fmt, charts: saved?.charts ?? [] });
+				this.sheets.push({ name, raw, rows: Math.max(rows + 5, MIN_ROWS), cols: Math.max(cols + 2, MIN_COLS), rowH, colW, fmt, charts: saved?.charts ?? [] });
 		}
 	}
 
@@ -270,8 +270,8 @@ export class SheetView extends FileView {
 		btn("superscript", "Power  x^y  (⌘⌥P)", () => this.insertFormula("^"));
 		btn("radical", "Square root (⌘⌥R)", () => this.insertFormula("SQRT(¦)"));
 		btn("function-square", "Insert a function", (e) => this.functionMenu(e), "f(x)");
-		btn("rows-3", "Add 10 rows", () => { this.sheet.rows += 10; this.build(); });
-		btn("columns-3", "Add a column", () => { this.sheet.cols += 1; this.build(); });
+		btn("rows-3", "Add 50 rows", () => { this.sheet.rows += 50; this.build(); });
+		btn("columns-3", "Add 10 columns", () => { this.sheet.cols += 10; this.build(); });
 		btn("undo-2", "Undo (⌘Z)", () => this.restore(this.undoStack, this.redoStack));
 		btn("redo-2", "Redo (⇧⌘Z)", () => this.restore(this.redoStack, this.undoStack));
 		btn("clipboard-copy", "Copy selection as a Markdown table", () => this.copyMarkdown());
@@ -758,7 +758,11 @@ export class SheetView extends FileView {
 		const s = this.sheet;
 		this.sel = { r: Math.max(0, Math.min(s.rows - 1, this.sel.r + dr)), c: Math.max(0, Math.min(s.cols - 1, this.sel.c + dc)) };
 		if (!extend) this.anchor = { ...this.sel };
-		if (this.sel.r >= s.rows - 1) { s.rows += 10; this.build(); return; }
+		// moving to the last row or column adds more, so the sheet never runs out
+		const grow = this.sel.r >= s.rows - 1 || this.sel.c >= s.cols - 1;
+		if (this.sel.r >= s.rows - 1) s.rows += 20;
+		if (this.sel.c >= s.cols - 1) s.cols += 10;
+		if (grow) { this.build(); return; }
 		this.drawSel();
 	}
 

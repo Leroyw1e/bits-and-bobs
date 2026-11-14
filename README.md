@@ -23,6 +23,7 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 ### Spreadsheets (`.xlsx`)
 - Opens and saves real Excel files.
 - Formulas with cell references and ranges, and around 55 functions, including `SUM`, `AVERAGE`, `POWER`, `SQRT`, trigonometry, logarithms, statistics and `IF`.
+- A big grid to start with (200 rows and columns A to AZ) that keeps growing as you move past the edge.
 - Resize rows and columns by dragging their edges. Sizes are saved in the file.
 - **Formatting**: bold, italic, text and fill colours, alignment, and number formats (currency, percent, decimals, scientific).
 - **Drag to fill**: drag the small square on the selection to continue numbers (1, 2 gives 3, 4, 5), weekdays and months, text such as Item 1, and formulas with their references moved.
