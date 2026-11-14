@@ -2,12 +2,13 @@ import { Component, MarkdownRenderer, Menu, Modal, Notice, Platform, Setting, TF
 import { getStroke } from "perfect-freehand";
 import type BitsAndBobs from "./main";
 import { MathPalette, insertInField, matchTool, MATH_GROUPS } from "./math";
-import { compilePlain } from "./formula";
+import { recognizeShape, Pt2 } from "./shapes";
+import { parseGraphLine, GraphItem } from "./graphs";
 
 // ---------- data ----------
 export type Pt = [number, number, number];
 export interface StrokeEl { id: string; type: "stroke"; pts: Pt[]; color: string; size: number; hl?: boolean; pen?: boolean }
-export interface ShapeEl { id: string; type: "shape"; kind: "rect" | "ellipse" | "line" | "arrow"; x: number; y: number; w: number; h: number; color: string; size: number; fill?: boolean }
+export interface ShapeEl { id: string; type: "shape"; kind: "rect" | "ellipse" | "line" | "arrow" | "poly"; x: number; y: number; w: number; h: number; color: string; size: number; fill?: boolean; pts?: [number, number][] }
 export interface TextEl { id: string; type: "text"; x: number; y: number; w: number; text: string; color: string; fs: number; align?: "left" | "center" | "right" }
 export interface ImageEl { id: string; type: "image"; x: number; y: number; w: number; h: number; src: string }
 export interface GraphEl { id: string; type: "graph"; x: number; y: number; w: number; h: number; fns: string[]; xmin: number; xmax: number; ymin: number; ymax: number }
@@ -15,7 +16,7 @@ export type El = StrokeEl | ShapeEl | TextEl | ImageEl | GraphEl;
 export type Bg = "plain" | "grid" | "dots" | "lines";
 export interface BoardDoc { elements: El[]; bg?: Bg }
 
-export type Tool = "select" | "hand" | "pen" | "highlighter" | "eraser" | "text" | "rect" | "ellipse" | "line" | "arrow";
+export type Tool = "select" | "lasso" | "trace" | "hand" | "pen" | "highlighter" | "eraser" | "text" | "rect" | "ellipse" | "line" | "arrow";
 
 export const INKS = ["ink", "#e03131", "#1971c2", "#2f9e44", "#f08c00", "#9c36b5"];
 export const HIGHLIGHTS = ["#ffd43b", "#8ce99a", "#faa2c1", "#74c0fc"];
@@ -32,7 +33,7 @@ const svgEl = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<strin
 	return e;
 };
 
-function strokePath(el: StrokeEl): string {
+export function strokePath(el: StrokeEl): string {
 	const outline = getStroke(el.pts, {
 		size: el.size,
 		thinning: el.hl ? 0 : el.pen ? 0.65 : 0.5,
@@ -67,6 +68,15 @@ function distSeg(px: number, py: number, ax: number, ay: number, bx: number, by:
 	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+function inPoly(x: number, y: number, poly: Pt2[]) {
+	let inside = false;
+	for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+		const [xi, yi] = poly[i], [xj, yj] = poly[j];
+		if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+	}
+	return inside;
+}
+
 export interface BoardOpts {
 	sourcePath: string;
 	frame?: { w: number; h: number };
@@ -78,8 +88,13 @@ export interface BoardOpts {
 
 interface Box { x: number; y: number; w: number; h: number }
 
+/** A stroke that the pen has been held on, and that has been snapped to a clean shape. */
+interface SnapState { shape: ShapeEl | null; stroke: StrokeEl | null; node: Element; line: boolean }
+
 type Action =
-	| { kind: "draw"; el: StrokeEl; node: SVGPathElement }
+	| { kind: "draw"; el: StrokeEl; node: SVGPathElement; holdTimer: number; ax: number; ay: number; snap: SnapState | null }
+	| { kind: "lasso"; pts: Pt2[]; node: SVGPolygonElement; svg: SVGSVGElement }
+	| { kind: "trace" }
 	| { kind: "erase"; removed: boolean }
 	| { kind: "pan"; sx: number; sy: number; vx: number; vy: number }
 	| { kind: "pinch"; d0: number; cx: number; cy: number; vx: number; vy: number; z: number }
@@ -117,6 +132,7 @@ export class Board extends Component {
 	private swatchRow?: HTMLElement;
 	private sizeRow?: HTMLElement;
 	private renderToken = 0;
+	private traceLayer?: HTMLElement;
 
 	constructor(private plugin: BitsAndBobs, host: HTMLElement, doc: BoardDoc, private opts: BoardOpts) {
 		super();
@@ -274,6 +290,7 @@ export class Board extends Component {
 		let s: SVGElement;
 		if (el.kind === "rect") s = svgEl("rect", { ...common, x, y, width: w, height: h, rx: 4 });
 		else if (el.kind === "ellipse") s = svgEl("ellipse", { ...common, cx: x + w / 2, cy: y + h / 2, rx: w / 2, ry: h / 2 });
+		else if (el.kind === "poly" && el.pts) s = svgEl("polygon", { ...common, points: el.pts.map((q) => q.join(",")).join(" ") });
 		else {
 			const g = svgEl("g", common);
 			g.appendChild(svgEl("line", { x1: el.x, y1: el.y, x2: el.x + el.w, y2: el.y + el.h }));
@@ -285,7 +302,7 @@ export class Board extends Component {
 			s = g;
 		}
 		s.style.stroke = stroke;
-		if (el.fill && (el.kind === "rect" || el.kind === "ellipse")) { s.style.fill = stroke; s.style.fillOpacity = "0.15"; }
+		if (el.fill && (el.kind === "rect" || el.kind === "ellipse" || el.kind === "poly")) { s.style.fill = stroke; s.style.fillOpacity = "0.15"; }
 		svg.appendChild(s);
 		return svg;
 	}
@@ -303,6 +320,8 @@ export class Board extends Component {
 		for (let x = Math.ceil(el.xmin / gx) * gx; x <= el.xmax; x += gx) grid.appendChild(svgEl("line", { x1: sx(x), y1: 0, x2: sx(x), y2: el.h }));
 		for (let y = Math.ceil(el.ymin / gy) * gy; y <= el.ymax; y += gy) grid.appendChild(svgEl("line", { x1: 0, y1: sy(y), x2: el.w, y2: sy(y) }));
 		svg.appendChild(grid);
+		const shadeG = svgEl("g");
+		svg.appendChild(shadeG);
 		const axes = svgEl("g", { class: "ms-graph-axes" });
 		if (el.ymin <= 0 && el.ymax >= 0) axes.appendChild(svgEl("line", { x1: 0, y1: sy(0), x2: el.w, y2: sy(0) }));
 		if (el.xmin <= 0 && el.xmax >= 0) axes.appendChild(svgEl("line", { x1: sx(0), y1: 0, x2: sx(0), y2: el.h }));
@@ -313,30 +332,109 @@ export class Board extends Component {
 		for (let x = Math.ceil(el.xmin / gx) * gx; x <= el.xmax; x += gx) if (Math.abs(x) > gx / 2) { const t = svgEl("text", { x: sx(x) + 2, y: ly }); t.textContent = fmt(x); labels.appendChild(t); }
 		for (let y = Math.ceil(el.ymin / gy) * gy; y <= el.ymax; y += gy) if (Math.abs(y) > gy / 2) { const t = svgEl("text", { x: lx, y: sy(y) - 2 }); t.textContent = fmt(y); labels.appendChild(t); }
 		svg.appendChild(labels);
+		const items = this.graphItems(el);
 		const legend = d.createDiv("ms-graph-legend");
-		el.fns.forEach((src, i) => {
-			const f = compilePlain(src);
-			const colour = GRAPH_COLOURS[i % GRAPH_COLOURS.length];
-			const item = legend.createDiv("ms-graph-legend-item");
-			item.style.color = colour;
-			item.setText((f ? "y = " : "⚠ ") + src.replace(/^\s*(y|f\(x\))\s*=\s*/i, ""));
-			if (!f) return;
-			let dStr = "", pen = false, prev = NaN;
-			const N = Math.max(200, Math.round(el.w));
+		const N = Math.max(240, Math.round(el.w));
+		const clampY = (y: number) => Math.max(-1e4, Math.min(1e4, sy(y)));
+		/** Runs of the curve that are finite, as arrays of screen points. */
+		const runs = (f: (x: number) => number): [number, number][][] => {
+			const out: [number, number][][] = []; let cur: [number, number][] = []; let prev = NaN;
 			for (let k = 0; k <= N; k++) {
-				const x = el.xmin + ((el.xmax - el.xmin) * k) / N;
-				const y = f(x);
-				const ok = isFinite(y) && Math.abs(y - prev) < (el.ymax - el.ymin) * 2;
-				if (isFinite(y) && (!pen || ok)) { dStr += `${pen ? "L" : "M"}${sx(x).toFixed(1)} ${Math.max(-1e4, Math.min(1e4, sy(y))).toFixed(1)} `; pen = true; }
-				else pen = isFinite(y) ? (dStr += `M${sx(x).toFixed(1)} ${sy(y).toFixed(1)} `, true) : false;
+				const x = el.xmin + ((el.xmax - el.xmin) * k) / N, y = f(x);
+				const jump = isFinite(prev) && isFinite(y) && Math.abs(y - prev) > (el.ymax - el.ymin) * 2;
+				if (!isFinite(y) || jump) { if (cur.length) out.push(cur); cur = []; }
+				if (isFinite(y)) cur.push([sx(x), clampY(y)]);
 				prev = y;
 			}
-			const p = svgEl("path", { d: dStr, class: "ms-graph-curve" });
-			p.style.stroke = colour;
-			svg.appendChild(p);
+			if (cur.length) out.push(cur);
+			return out;
+		};
+		const line = (pts: [number, number][]) => pts.map((q, i) => `${i ? "L" : "M"}${q[0].toFixed(1)} ${q[1].toFixed(1)}`).join(" ");
+		el.fns.forEach((src, i) => {
+			const item = items[i];
+			const colour = GRAPH_COLOURS[i % GRAPH_COLOURS.length];
+			const row = legend.createDiv("ms-graph-legend-item");
+			row.style.color = colour;
+			if (!item) { row.setText("⚠ " + src); return; }
+			row.setText(item.label.length > 34 ? item.label.slice(0, 33) + "…" : item.label);
+			if (item.kind === "curve" || item.kind === "shade") {
+				const rs = runs(item.f);
+				if (item.kind === "shade") {
+					const edge = item.above ? 0 : el.h;
+					for (const r of rs) {
+						const d2 = `${line(r)} L${r[r.length - 1][0].toFixed(1)} ${edge} L${r[0][0].toFixed(1)} ${edge} Z`;
+						const sh = svgEl("path", { d: d2, class: "ms-graph-shade" });
+						sh.style.fill = colour;
+						shadeG.appendChild(sh);
+					}
+				}
+				const p = svgEl("path", { d: rs.map(line).join(" "), class: "ms-graph-curve" });
+				p.style.stroke = colour;
+				if (item.kind === "shade" && item.strict) p.setAttribute("stroke-dasharray", "7 5");
+				svg.appendChild(p);
+			} else if (item.kind === "vline") {
+				const v = svgEl("line", { x1: sx(item.x), y1: 0, x2: sx(item.x), y2: el.h, class: "ms-graph-curve" });
+				v.style.stroke = colour;
+				svg.appendChild(v);
+			} else {
+				for (const pt of item.pts) {
+					const c = svgEl("circle", { cx: sx(pt.x), cy: sy(pt.y), r: 5, class: "ms-graph-point" });
+					c.style.fill = colour;
+					svg.appendChild(c);
+					const t = svgEl("text", { x: sx(pt.x) + 8, y: sy(pt.y) - 7, class: "ms-graph-point-label" });
+					t.textContent = pt.name ? `${pt.name} (${fmt(pt.x)}, ${fmt(pt.y)})` : `(${fmt(pt.x)}, ${fmt(pt.y)})`;
+					t.style.fill = colour;
+					svg.appendChild(t);
+				}
+			}
 		});
 		d.prepend(svg);
 		return d;
+	}
+
+	/** One parsed item per line of the graph's editor (null for lines that can't be read). */
+	graphItems(el: GraphEl): (GraphItem | null)[] { return el.fns.map((src) => parseGraphLine(src)); }
+
+	// ---------- tracing a graph: drag over it to read values ----------
+	private clearTrace() { this.traceLayer?.remove(); this.traceLayer = undefined; }
+
+	private traceAt(x: number, y: number) {
+		this.clearTrace();
+		const g = [...this.doc.elements].reverse().find((e) => e.type === "graph" && x >= e.x && x <= e.x + e.w && y >= e.y && y <= e.y + e.h) as GraphEl | undefined;
+		if (!g) return;
+		const items = this.graphItems(g);
+		const sx = (v: number) => ((v - g.xmin) / (g.xmax - g.xmin)) * g.w;
+		const sy = (v: number) => g.h - ((v - g.ymin) / (g.ymax - g.ymin)) * g.h;
+		let gx = g.xmin + ((x - g.x) / g.w) * (g.xmax - g.xmin);
+		const snapR = 14 / this.z;
+		let snapped: { x: number; y: number; name: string } | null = null;
+		for (const it of items) if (it?.kind === "points") for (const p of it.pts) if (Math.abs(g.x + sx(p.x) - x) < snapR && Math.abs(g.y + sy(p.y) - y) < snapR) { snapped = p; gx = p.x; }
+		const fmtv = (v: number) => String(Math.round(v * 1000) / 1000);
+		const layer = this.world.createDiv("ms-trace");
+		layer.style.cssText = `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`;
+		const svg = svgEl("svg", { viewBox: `0 0 ${g.w} ${g.h}`, width: g.w, height: g.h });
+		svg.appendChild(svgEl("line", { x1: sx(gx), y1: 0, x2: sx(gx), y2: g.h, class: "ms-trace-line" }));
+		const read = layer.createDiv("ms-trace-read");
+		read.createDiv({ cls: "ms-trace-x", text: `x = ${fmtv(gx)}` });
+		items.forEach((it, i) => {
+			if (!it) return;
+			const colour = GRAPH_COLOURS[i % GRAPH_COLOURS.length];
+			if (it.kind === "curve" || it.kind === "shade") {
+				const v = it.f(gx);
+				if (!Number.isFinite(v)) return;
+				const row = read.createDiv({ text: `y = ${fmtv(v)}` });
+				row.style.color = colour;
+				const c = svgEl("circle", { cx: sx(gx), cy: Math.max(-50, Math.min(g.h + 50, sy(v))), r: 5, class: "ms-trace-dot" });
+				c.style.fill = colour;
+				svg.appendChild(c);
+			}
+		});
+		if (snapped) read.createDiv({ cls: "ms-trace-x", text: snapped.name ? `${snapped.name} (${fmtv(snapped.x)}, ${fmtv(snapped.y)})` : `(${fmtv(snapped.x)}, ${fmtv(snapped.y)})` });
+		layer.prepend(svg);
+		// keep the readout a constant size on screen and inside the graph
+		const left = sx(gx) > g.w * 0.6;
+		read.style.cssText = `transform:scale(${1 / this.z});transform-origin:${left ? "top right" : "top left"};${left ? `right:${g.w - sx(gx) + 8 / this.z}px` : `left:${sx(gx) + 8 / this.z}px`};top:${8 / this.z}px`;
+		this.traceLayer = layer;
 	}
 
 	private refreshNode(el: El) {
@@ -390,6 +488,12 @@ export class Board extends Component {
 		return null;
 	}
 
+	private unionBox(els: El[]): Box {
+		let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+		for (const el of els) { const b = this.bbox(el); x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h); }
+		return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+	}
+
 	drawSelection() {
 		this.selLayer.empty();
 		const els = this.doc.elements.filter((e) => this.selection.has(e.id));
@@ -398,7 +502,12 @@ export class Board extends Component {
 			const r = this.selLayer.createDiv("ms-sel-box");
 			r.style.cssText = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`;
 		}
-		if (els.length === 1 && els[0].type !== "stroke") {
+		if (els.length > 1) {
+			const u = this.unionBox(els);
+			const g = this.selLayer.createDiv("ms-sel-group");
+			g.style.cssText = `left:${u.x}px;top:${u.y}px;width:${u.w}px;height:${u.h}px`;
+		}
+		if (els.length === 1 && els[0].type !== "stroke" && !(els[0].type === "shape" && els[0].kind === "poly")) {
 			const b = this.bbox(els[0]);
 			const h = this.selLayer.createDiv("ms-sel-handle");
 			h.style.cssText = `left:${b.x + b.w}px;top:${b.y + b.h}px`;
@@ -448,7 +557,10 @@ export class Board extends Component {
 	}
 	private offset<T extends El>(el: T, dx: number, dy: number): T {
 		if (el.type === "stroke") el.pts = el.pts.map(([x, y, p]) => [x + dx, y + dy, p] as Pt);
-		else { el.x += dx; el.y += dy; }
+		else {
+			el.x += dx; el.y += dy;
+			if (el.type === "shape" && el.pts) el.pts = el.pts.map(([px, py]) => [px + dx, py + dy] as [number, number]);
+		}
 		return el;
 	}
 
@@ -494,7 +606,7 @@ export class Board extends Component {
 		// Two fingers: pinch-zoom (cancels a finger stroke that started a moment ago)
 		const touches = [...this.pointers.values()].filter((p) => p.type === "touch");
 		if (touches.length === 2) {
-			if (this.action?.kind === "draw") this.action.node.closest("svg")?.remove();
+			if (this.action?.kind === "draw") { window.clearTimeout(this.action.holdTimer); (this.action.snap?.node ?? this.action.node.closest("svg"))?.remove(); }
 			const [a, b] = touches;
 			const mid = this.local({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
 			this.action = { kind: "pinch", d0: Math.hypot(a.x - b.x, a.y - b.y), cx: mid.sx, cy: mid.sy, vx: this.vx, vy: this.vy, z: this.z };
@@ -526,7 +638,21 @@ export class Board extends Component {
 			node.style.fill = hl ? el.color : paint(el.color);
 			svg.appendChild(node);
 			this.world.insertBefore(svg, this.selLayer);
-			this.action = { kind: "draw", el, node };
+			const act = { kind: "draw" as const, el, node, holdTimer: 0, ax: e.clientX, ay: e.clientY, snap: null };
+			this.action = act;
+			this.armHold(act);
+		} else if (tool === "lasso") {
+			const sel = this.doc.elements.filter((d) => this.selection.has(d.id));
+			if (sel.length) { const u = this.unionBox(sel); if (x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h) { this.startMove(x, y); return; } }
+			this.selection.clear(); this.drawSelection();
+			const svg = svgEl("svg", { class: "ms-svg" });
+			const node = svgEl("polygon", { points: `${x},${y}`, class: "ms-lasso-line" });
+			svg.appendChild(node);
+			this.world.insertBefore(svg, this.selLayer);
+			this.action = { kind: "lasso", pts: [[x, y]], node, svg };
+		} else if (tool === "trace") {
+			this.traceAt(x, y);
+			this.action = { kind: "trace" };
 		} else if (tool === "eraser") {
 			this.snapshot();
 			this.action = { kind: "erase", removed: false };
@@ -547,26 +673,71 @@ export class Board extends Component {
 		}
 	}
 
+	private startMove(x: number, y: number) {
+		const orig = new Map<string, string>();
+		for (const el of this.doc.elements) if (this.selection.has(el.id)) orig.set(el.id, JSON.stringify(el));
+		this.action = { kind: "move", sx: x, sy: y, orig, moved: false };
+		this.drawSelection();
+	}
+
+	// ---------- hold the pen still at the end of a stroke to snap it to a clean shape ----------
+	private armHold(a: Extract<Action, { kind: "draw" }>) {
+		window.clearTimeout(a.holdTimer);
+		if (!this.plugin.settings.shapeSnap || a.snap) return;
+		a.holdTimer = window.setTimeout(() => this.trySnap(a), this.plugin.settings.snapHoldMs);
+	}
+
+	private trySnap(a: Extract<Action, { kind: "draw" }>) {
+		if (this.action !== a || a.snap) return;
+		const r = recognizeShape(a.el.pts.map((p) => [p[0], p[1]] as Pt2));
+		if (!r) return;
+		const svg = a.node.closest("svg");
+		if (!svg) return;
+		if (a.el.hl) {
+			// a highlighter stroke only snaps to a straight line (for underlining)
+			if (r.kind !== "line") return;
+			a.el.pts = [[r.x1, r.y1, 0.5], [r.x2, r.y2, 0.5]];
+			a.node.setAttribute("d", strokePath(a.el));
+			a.snap = { shape: null, stroke: a.el, node: svg, line: true };
+			return;
+		}
+		const base = { id: uid(), type: "shape" as const, color: a.el.color, size: Math.max(2, a.el.size * 0.85) };
+		let shape: ShapeEl;
+		if (r.kind === "line") shape = { ...base, kind: "line", x: r.x1, y: r.y1, w: r.x2 - r.x1, h: r.y2 - r.y1 };
+		else if (r.kind === "poly") {
+			const xs = r.pts.map((q) => q[0]), ys = r.pts.map((q) => q[1]);
+			shape = { ...base, kind: "poly", pts: r.pts, x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+		} else shape = { ...base, kind: r.kind, x: r.x, y: r.y, w: r.w, h: r.h };
+		const node = this.shapeSvg(shape);
+		(node as unknown as HTMLElement).dataset.id = shape.id;
+		svg.replaceWith(node);
+		a.snap = { shape, stroke: null, node, line: r.kind === "line" };
+		this.root.addClass("is-snapped");
+		window.setTimeout(() => this.root.removeClass("is-snapped"), 220);
+	}
+
 	private selectDown(e: PointerEvent, x: number, y: number) {
 		// resize handle?
 		if (this.selection.size === 1) {
 			const el = this.doc.elements.find((d) => this.selection.has(d.id));
-			if (el && el.type !== "stroke") {
-				const b = this.bbox(el);
-				if (Math.hypot(x - (b.x + b.w), y - (b.y + b.h)) < 14 / this.z) {
+			if (el && el.type !== "stroke" && !(el.type === "shape" && el.kind === "poly")) {
+					const b = this.bbox(el);
+					if (Math.hypot(x - (b.x + b.w), y - (b.y + b.h)) < 14 / this.z) {
 					this.action = { kind: "resize", id: el.id, sx: x, sy: y, orig: JSON.stringify(el) };
 					return;
 				}
 			}
 		}
+		// pressing inside a multi-item selection (for example after a lasso) moves all of it
+		if (this.selection.size > 1 && !e.shiftKey) {
+			const u = this.unionBox(this.doc.elements.filter((d) => this.selection.has(d.id)));
+			if (x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h) { this.startMove(x, y); return; }
+		}
 		const hit = this.topHit(x, y);
 		if (hit) {
 			if (!this.selection.has(hit.id)) { if (!e.shiftKey) this.selection.clear(); this.selection.add(hit.id); }
 			else if (e.shiftKey) { this.selection.delete(hit.id); this.drawSelection(); return; }
-			const orig = new Map<string, string>();
-			for (const el of this.doc.elements) if (this.selection.has(el.id)) orig.set(el.id, JSON.stringify(el));
-			this.action = { kind: "move", sx: x, sy: y, orig, moved: false };
-			this.drawSelection();
+			this.startMove(x, y);
 		} else {
 			if (!e.shiftKey) this.selection.clear();
 			const box = this.selLayer.createDiv("ms-marquee");
@@ -577,7 +748,11 @@ export class Board extends Component {
 	}
 
 	private onMove(e: PointerEvent) {
-		if (!this.pointers.has(e.pointerId)) return;
+		if (!this.pointers.has(e.pointerId)) {
+			// hovering (mouse, or Apple Pencil hover) reads values off a graph
+			if (this.tool === "trace" && !this.opts.readOnly && (e.pointerType === "mouse" || e.pointerType === "pen")) { const w = this.toWorld(e); this.traceAt(w.x, w.y); }
+			return;
+		}
 		this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
 		const a = this.action;
 		if (!a) return;
@@ -601,14 +776,43 @@ export class Board extends Component {
 			return;
 		}
 		if (a.kind === "draw") {
+			if (a.snap) {
+				// after snapping, a line's far end follows the pen so you can aim it
+				if (!a.snap.line) return;
+				const { x, y } = this.toWorld(e);
+				if (a.snap.shape) {
+					const s = a.snap.shape;
+					let ex = x, ey = y;
+					const ang = (((Math.atan2(y - s.y, x - s.x) * 180) / Math.PI) % 180 + 180) % 180;
+					if (ang < 3 || ang > 177) ey = s.y; else if (Math.abs(ang - 90) < 3) ex = s.x;
+					s.w = ex - s.x; s.h = ey - s.y;
+					const fresh = this.shapeSvg(s);
+					(fresh as unknown as HTMLElement).dataset.id = s.id;
+					a.snap.node.replaceWith(fresh); a.snap.node = fresh;
+				} else if (a.snap.stroke) {
+					const st = a.snap.stroke;
+					st.pts = [st.pts[0], [x, Math.abs(y - st.pts[0][1]) * this.z < 6 ? st.pts[0][1] : y, 0.5]];
+					a.node.setAttribute("d", strokePath(st));
+				}
+				return;
+			}
 			const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
 			for (const ev of evs.length ? evs : [e]) {
 				const { x, y } = this.toWorld(ev);
 				a.el.pts.push([x, y, a.el.pen ? Math.max(0.05, ev.pressure) : 0.5]);
 			}
 			a.node.setAttribute("d", strokePath(a.el));
+			// still moving? restart the hold timer
+			if (Math.hypot(e.clientX - a.ax, e.clientY - a.ay) > 3) { a.ax = e.clientX; a.ay = e.clientY; this.armHold(a); }
 			return;
 		}
+		if (a.kind === "lasso") {
+			const { x, y } = this.toWorld(e);
+			a.pts.push([x, y]);
+			a.node.setAttribute("points", a.pts.map((q) => q.join(",")).join(" "));
+			return;
+		}
+		if (a.kind === "trace") { const w = this.toWorld(e); this.traceAt(w.x, w.y); return; }
 		const { x, y } = this.toWorld(e);
 		if (a.kind === "erase") { this.eraseAt(x, y); return; }
 		if (a.kind === "shape") {
@@ -669,9 +873,28 @@ export class Board extends Component {
 		this.action = null;
 		this.root.removeClass("is-panning");
 		if (a.kind === "draw") {
-			a.node.closest("svg")?.remove();
+			window.clearTimeout(a.holdTimer);
+			(a.snap?.node ?? a.node.closest("svg"))?.remove();
 			if (cancelled && a.el.pts.length < 3) return;
-			this.add(a.el);
+			if (a.snap?.shape) this.add(a.snap.shape);
+			else this.add(a.el);
+		} else if (a.kind === "lasso") {
+			a.svg.remove();
+			const poly = a.pts;
+			if (poly.length > 5) {
+				for (const el of this.doc.elements) {
+					if (el.type === "stroke") {
+						let inside = 0; for (const q of el.pts) if (inPoly(q[0], q[1], poly)) inside++;
+						if (inside / el.pts.length >= 0.5) this.selection.add(el.id);
+					} else {
+						const b = this.bbox(el);
+						if (inPoly(b.x + b.w / 2, b.y + b.h / 2, poly)) this.selection.add(el.id);
+					}
+				}
+			}
+			this.drawSelection();
+		} else if (a.kind === "trace") {
+			// the readout stays until you touch something else
 		} else if (a.kind === "erase") {
 			if (a.removed) this.changed(); else this.undoStack.pop();
 		} else if (a.kind === "shape") {
@@ -749,11 +972,11 @@ export class Board extends Component {
 		if ((e.key === "Delete" || e.key === "Backspace") && this.selection.size) { e.preventDefault(); this.deleteSelection(); return; }
 		if (e.key === "Escape") { this.selection.clear(); this.drawSelection(); return; }
 		if (e.code === "Space") { e.preventDefault(); this.spaceDown = true; this.root.addClass("is-panning"); return; }
-		const map: Record<string, Tool> = { v: "select", p: "pen", h: "highlighter", e: "eraser", t: "text", r: "rect", o: "ellipse", l: "line", a: "arrow" };
+		const map: Record<string, Tool> = { v: "select", s: "lasso", c: "trace", p: "pen", h: "highlighter", e: "eraser", t: "text", r: "rect", o: "ellipse", l: "line", a: "arrow" };
 		const k = e.key.toLowerCase();
 		if (map[k]) {
 			const st = this.plugin.settings;
-			const off = (k === "h" && !st.tbHighlighter) || ("rola".includes(k) && !st.tbShapes);
+			const off = (k === "h" && !st.tbHighlighter) || ("rola".includes(k) && !st.tbShapes) || (k === "s" && !st.tbLasso) || (k === "c" && !st.tbTrace);
 			if (!off) { e.preventDefault(); this.setTool(map[k]); }
 			return;
 		}
@@ -985,7 +1208,8 @@ export class Board extends Component {
 	setTool(t: Tool) {
 		if (this.editing) this.commitText();
 		this.tool = t;
-		if (t !== "select") { this.selection.clear(); this.drawSelection(); }
+		if (t !== "select" && t !== "lasso") { this.selection.clear(); this.drawSelection(); }
+		if (t !== "trace") this.clearTrace();
 		this.root.dataset.tool = t;
 		this.syncToolbar();
 	}
@@ -1017,10 +1241,11 @@ export class Board extends Component {
 			this.toolButtons.set(key, b);
 			return b;
 		};
+		const st = this.plugin.settings;
 		let g = group();
 		btn(g, "select", "mouse-pointer-2", "Select & move (V)", () => this.setTool("select"));
-		if (!compact) btn(g, "hand", "hand", "Pan (H or hold Space)", () => this.setTool("hand"));
-		const st = this.plugin.settings;
+		if (st.tbLasso) btn(g, "lasso", "lasso-select", "Lasso: circle things to select them (S)", () => this.setTool("lasso"));
+		if (!compact) btn(g, "hand", "hand", "Pan (hold Space)", () => this.setTool("hand"));
 		g = group();
 		btn(g, "pen", "pen-tool", "Pen (P)", () => this.setTool("pen"));
 		if (st.tbHighlighter) btn(g, "highlighter", "highlighter", "Highlighter (H)", () => this.setTool("highlighter"));
@@ -1031,7 +1256,10 @@ export class Board extends Component {
 			btn(g, "math", "sigma", "Maths box (M)", () => this.newMath("$$\n¦\n$$"));
 			btn(g, "palette", "pi", "Maths symbols", () => this.openPalette());
 		}
-		if (st.tbGraph) btn(g, "graph", "line-chart", "Graph a function (G)", () => this.newGraph());
+		if (st.tbGraph) {
+			btn(g, "graph", "line-chart", "Graph a function (G)", () => this.newGraph());
+			if (st.tbTrace) btn(g, "trace", "crosshair", "Read values off a graph: drag over it (C)", () => this.setTool("trace"));
+		}
 		if (!compact && st.tbShapes) {
 			g = group();
 			btn(g, "rect", "square", "Rectangle (R)", () => this.setTool("rect"));
@@ -1138,19 +1366,19 @@ class GraphModal extends Modal {
 		this.titleEl.setText("Graph");
 		const { contentEl } = this;
 		contentEl.addClass("ms-graph-modal");
-		contentEl.createDiv({ cls: "setting-item-description", text: "One function per line, e.g.  x^2 - 3,  2sin(x),  sqrt(x),  1/x,  e^x. Use ^ for powers." });
+		contentEl.createDiv({ cls: "setting-item-description", text: "One item per line. Curves: x^2 - 3, 2sin(x), sqrt(x), 1/x, e^x. Shaded areas: y > x^2 or y <= 2x + 1. Vertical lines: x = 3. Points: (1, 2) or (2, 5) A." });
 		const ta = contentEl.createEl("textarea", { cls: "ms-graph-input" });
 		ta.value = this.el.fns.join("\n");
 		ta.rows = 4;
 		const status = contentEl.createDiv("ms-graph-status");
 		const check = () => {
-			const bad = ta.value.split("\n").filter((l) => l.trim() && !compilePlain(l));
+			const bad = ta.value.split("\n").filter((l) => l.trim() && !parseGraphLine(l));
 			status.setText(bad.length ? "Can't read: " + bad.join(", ") : "");
 		};
 		ta.oninput = check;
 		ta.onkeydown = (e) => { const t = matchTool(e); if (t?.id === "power") { e.preventDefault(); insertInField(ta, "^", "plain"); } else if (t?.id === "sqrt") { e.preventDefault(); insertInField(ta, "sqrt(¦)", "plain"); } };
 		const quick = contentEl.createDiv("ms-graph-quick");
-		for (const [label, ins] of [["xʸ", "^"], ["√", "sqrt(¦)"], ["π", "pi"], ["sin", "sin(¦)"], ["cos", "cos(¦)"], ["tan", "tan(¦)"], ["ln", "ln(¦)"], ["|x|", "abs(¦)"], ["eˣ", "e^(¦)"]]) {
+		for (const [label, ins] of [["xʸ", "^"], ["√", "sqrt(¦)"], ["π", "pi"], ["sin", "sin(¦)"], ["cos", "cos(¦)"], ["tan", "tan(¦)"], ["ln", "ln(¦)"], ["|x|", "abs(¦)"], ["eˣ", "e^(¦)"], ["y >", "y > ¦"], ["y <", "y < ¦"], ["x =", "x = ¦"], ["(x, y)", "(¦, )"]]) {
 			const b = quick.createEl("button", { text: label });
 			b.onclick = () => insertInField(ta, ins, "plain");
 		}

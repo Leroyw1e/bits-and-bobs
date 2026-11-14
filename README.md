@@ -8,7 +8,9 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - An endless board you can pan and zoom, with pen, highlighter, eraser, shapes, arrows and text.
 - **Stylus support**: pressure-sensitive lines, palm rejection (once the pen touches the board, fingers pan instead of drawing), and pinch to zoom.
 - **Maths boxes** that render LaTeX, such as `$$\frac{-b \pm \sqrt{b^2-4ac}}{2a}$$`.
-- **Graphs**: type `x^2 - 3` or `2sin(x)` and the curve is drawn on the board.
+- **Snap to shape**: draw a line, circle, rectangle or triangle, then hold the pen still at the end and it turns into a clean shape. A snapped line can be aimed before you lift, and a highlighter stroke snaps to a straight underline.
+- **Lasso**: circle things with the pen to select them, then drag them together.
+- **Graphs**: type `x^2 - 3` or `2sin(x)` and the curve is drawn. You can also add shaded areas (`y > x^2`), vertical lines (`x = 3`) and named points (`(1, 2) A`). The **trace** tool reads values off a curve as you drag across it.
 - **Images** from your device, camera, clipboard, the vault, or by drag and drop. Images are saved in your attachments folder. iPhone HEIC photos are converted to JPEG automatically (on iPad, iPhone and macOS).
 - Grid, dots, lined or plain backgrounds, plus undo and redo (⌘Z / ⇧⌘Z, or Ctrl+Z / Ctrl+Y).
 
@@ -16,11 +18,15 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Presentations where every slide works like a drawing board.
 - 11 ready-made layouts: Title slide, Title & bullets, Two columns, Compare, Section header, Equation, Worked example, Graph, Picture & text, Big statement and Blank.
 - Slide thumbnails, speaker notes, and full-screen presenting with the keyboard, taps or swipes.
+- **Draw while presenting**: pen, highlighter and laser pointer on top of the slide (**P**, **H**, **L**, clear with **C**). Drawings stay with their slide until you finish.
 
 ### Spreadsheets (`.xlsx`)
 - Opens and saves real Excel files.
 - Formulas with cell references and ranges, and around 55 functions, including `SUM`, `AVERAGE`, `POWER`, `SQRT`, trigonometry, logarithms, statistics and `IF`.
 - Resize rows and columns by dragging their edges. Sizes are saved in the file.
+- **Formatting**: bold, italic, text and fill colours, alignment, and number formats (currency, percent, decimals, scientific).
+- **Drag to fill**: drag the small square on the selection to continue numbers (1, 2 gives 3, 4, 5), weekdays and months, text such as Item 1, and formulas with their references moved.
+- **Charts**: select cells and make a **bar**, **line**, **pie** or **scatter** chart. Charts update as you change the numbers, and can be saved as an image to use on a note, board or slide.
 - Function suggestions as you type a formula, AutoSum, click a cell to add it to a formula, multiple sheets, copy and paste, and copy as a Markdown table.
 - A switch for keyboard autocorrect and predictions.
 
@@ -51,17 +57,17 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 | Symbol picker | ⌘⌥K | Ctrl+Alt+K |
 | Greek letters | ⌘⌥G | Ctrl+Alt+G |
 
-On a board: **P** pen, **H** highlighter, **E** eraser, **V** select, **T** text, **M** maths box, **G** graph, **R O L A** shapes, **1–6** colours, **[ ]** size, hold **Space** to pan, **0** to fit.
+On a board: **P** pen, **H** highlighter, **E** eraser, **V** select, **S** lasso, **T** text, **M** maths box, **G** graph, **C** trace, **R O L A** shapes, **1–6** colours, **[ ]** size, hold **Space** to pan, **0** to fit.
 
 All commands can also be given your own hotkeys in **Settings → Hotkeys**.
 
 ## Settings
 
-Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, each board tool, speaker notes, full-screen presenting, spreadsheet autocorrect and function suggestions.
+Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool, speaker notes, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
 
 ## Notes
 
-- **Spreadsheets** keep your values, formulas, sheets and row and column sizes when saved. Cell colours and number formatting from Excel are not kept.
+- **Spreadsheets** keep your values, formulas, sheets, row and column sizes, and number formats in the Excel file. Bold, italic, colours, alignment and charts are saved on an extra hidden sheet named `__bits_meta` inside the file, so Excel won't show them. Cell colours made in Excel itself are not read.
 - **Slides** use their own format, and `.pptx` files can't be opened.
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
 - **Privacy**: no network requests, no telemetry and no accounts. Everything stays in your vault.

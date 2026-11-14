@@ -3,11 +3,14 @@ import * as XLSX from "xlsx";
 import type BitsAndBobs from "./main";
 import { FErr, FUNCTIONS, V, addr, colName, parse, parseAddr, run } from "./formula";
 import { insertInField, matchTool } from "./math";
+import { CellFmt, ChartDef, ChartType, FILL_COLOURS, META_SHEET, NUMBER_FORMATS, TEXT_COLOURS, cleanFmt, displayValue, planFill, readMeta, shiftFormula, writeMeta, MetaPayload } from "./sheetmeta";
+import { chartData, parseRange, renderChart, ChartTheme } from "./charts";
 
 export const VIEW_SHEET = "math-studio-sheet";
 export const EXT_SHEET = "xlsx";
 
-interface SheetModel { name: string; raw: Map<string, string>; rows: number; cols: number; rowH: Map<number, number>; colW: Map<number, number> }
+interface SheetModel { name: string; raw: Map<string, string>; rows: number; cols: number; rowH: Map<number, number>; colW: Map<number, number>; fmt: Map<string, CellFmt>; charts: ChartDef[] }
+export const newSheetModel = (name: string): SheetModel => ({ name, raw: new Map(), rows: 40, cols: 12, rowH: new Map(), colW: new Map(), fmt: new Map(), charts: [] });
 
 export const ROW_H = 28, COL_W = 96;
 
@@ -21,10 +24,13 @@ export class Workbook {
 	constructor(data: ArrayBuffer | null) {
 		this.wb = data && data.byteLength ? XLSX.read(new Uint8Array(data), { type: "array", cellFormula: true, cellDates: true, cellNF: true, cellStyles: true }) : XLSX.utils.book_new();
 		if (!this.wb.SheetNames.length) XLSX.utils.book_append_sheet(this.wb, XLSX.utils.aoa_to_sheet([[]]), "Sheet1");
+		const meta = readMeta(this.wb);
+		if (!this.wb.SheetNames.length) XLSX.utils.book_append_sheet(this.wb, XLSX.utils.aoa_to_sheet([[]]), "Sheet1");
 		for (const name of this.wb.SheetNames) {
 			const ws = this.wb.Sheets[name];
 			const raw = new Map<string, string>();
-			let rows = 0, cols = 0;
+				const fmt = new Map<string, CellFmt>();
+				let rows = 0, cols = 0;
 			for (const key of Object.keys(ws)) {
 				if (key[0] === "!") continue;
 				const c = ws[key] as XLSX.CellObject;
@@ -35,13 +41,16 @@ export class Workbook {
 				else if (c.v === undefined || c.v === null) continue;
 				else v = c.t === "n" ? String(c.v) : String(c.v);
 				raw.set(key, v);
-				const p = parseAddr(key)!;
+					if (c.t === "n" && c.z && c.z !== "General") fmt.set(key, { nf: String(c.z) });
+					const p = parseAddr(key)!;
 				rows = Math.max(rows, p.r + 1); cols = Math.max(cols, p.c + 1);
 			}
 			const rowH = new Map<number, number>(), colW = new Map<number, number>();
 			(ws["!rows"] ?? []).forEach((r, i) => { const h = r?.hpx ?? (r?.hpt ? r.hpt * 96 / 72 : 0); if (h && !r.hidden) rowH.set(i, Math.round(h)); });
 			(ws["!cols"] ?? []).forEach((c, i) => { const w = c?.wpx ?? (c?.wch ? c.wch * 7 + 5 : 0); if (w && !c.hidden) colW.set(i, Math.round(w)); });
-			this.sheets.push({ name, raw, rows: Math.max(rows + 5, 40), cols: Math.max(cols + 2, 12), rowH, colW });
+			const saved = meta?.sheets[name];
+				if (saved?.fmt) for (const [ref, f] of Object.entries(saved.fmt)) fmt.set(ref, f);
+				this.sheets.push({ name, raw, rows: Math.max(rows + 5, 40), cols: Math.max(cols + 2, 12), rowH, colW, fmt, charts: saved?.charts ?? [] });
 		}
 	}
 
@@ -99,11 +108,13 @@ export class Workbook {
 				const p = parseAddr(ref)!; maxR = Math.max(maxR, p.r); maxC = Math.max(maxC, p.c);
 				if (raw.startsWith("=")) {
 					const v = this.value(s, ref);
-					ws[ref] = v instanceof FErr ? { t: "s", f: raw.slice(1), v: v.code }
-						: typeof v === "number" ? { t: "n", f: raw.slice(1), v } : typeof v === "boolean" ? { t: "b", f: raw.slice(1), v } : { t: "s", f: raw.slice(1), v: String(v) };
+					const nf = s.fmt.get(ref)?.nf;
+						ws[ref] = v instanceof FErr ? { t: "s", f: raw.slice(1), v: v.code }
+							: typeof v === "number" ? { t: "n", f: raw.slice(1), v, ...(nf ? { z: nf } : {}) } : typeof v === "boolean" ? { t: "b", f: raw.slice(1), v } : { t: "s", f: raw.slice(1), v: String(v) };
 				} else {
 					const v = this.value(s, ref);
-					ws[ref] = typeof v === "number" ? { t: "n", v } : typeof v === "boolean" ? { t: "b", v } : { t: "s", v: raw };
+					const nf = s.fmt.get(ref)?.nf;
+						ws[ref] = typeof v === "number" ? { t: "n", v, ...(nf ? { z: nf } : {}) } : typeof v === "boolean" ? { t: "b", v } : { t: "s", v: raw };
 				}
 			}
 			const rowsArr: XLSX.RowInfo[] = [], colsArr: XLSX.ColInfo[] = [];
@@ -114,6 +125,14 @@ export class Workbook {
 			ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
 			this.wb.Sheets[s.name] = ws;
 		}
+		// colours, bold, alignment and charts live on a hidden sheet (Excel files can't hold them through this plugin)
+		const payload: MetaPayload = { v: 1, sheets: {} };
+		for (const s of this.sheets) {
+			const fmt: Record<string, CellFmt> = {};
+			for (const [ref, f] of s.fmt) { const c = cleanFmt(f); if (c) fmt[ref] = c; }
+			if (Object.keys(fmt).length || s.charts.length) payload.sheets[s.name] = { ...(Object.keys(fmt).length ? { fmt } : {}), ...(s.charts.length ? { charts: s.charts } : {}) };
+		}
+		writeMeta(this.wb, payload);
 		const out = XLSX.write(this.wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 		return out;
 	}
@@ -125,7 +144,11 @@ export function emptyXlsx(): ArrayBuffer {
 	return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 }
 
-export function display(v: V): string {
+export function display(v: V, nf?: string): string {
+	return displayValue(v, nf);
+}
+
+function displayLegacy(v: V): string {
 	if (v instanceof FErr) return v.code;
 	if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
 	if (typeof v === "number") {
@@ -135,6 +158,8 @@ export function display(v: V): string {
 	}
 	return v;
 }
+
+interface Snap { sheet: number; raw: [string, string][]; fmt: [string, CellFmt][]; charts: string }
 
 export class SheetView extends FileView {
 	book: Workbook | null = null;
@@ -149,8 +174,13 @@ export class SheetView extends FileView {
 	private editor: { input: HTMLInputElement; r: number; c: number; fromBar: boolean } | null = null;
 	private saveTimer = 0;
 	private writing = false;
-	private undoStack: { sheet: number; raw: [string, string][] }[] = [];
-	private redoStack: { sheet: number; raw: [string, string][] }[] = [];
+	private undoStack: Snap[] = [];
+	private redoStack: Snap[] = [];
+	private chartsOpen = false;
+	private chartsPane?: HTMLElement;
+	private chartHosts = new Map<string, HTMLElement>();
+	private fillHandle?: HTMLElement;
+	private fillDrag: { target: { r1: number; r2: number; c1: number; c2: number }; dir: "down" | "up" | "left" | "right"; count: number } | null = null;
 
 	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) { super(leaf); this.allowNoFile = false; }
 	getViewType() { return VIEW_SHEET; }
@@ -194,8 +224,12 @@ export class SheetView extends FileView {
 	}
 
 	// ---------- edits ----------
+	private snap(sheetIndex = this.active): Snap {
+		const s = this.book!.sheets[sheetIndex];
+		return { sheet: sheetIndex, raw: [...s.raw], fmt: [...s.fmt], charts: JSON.stringify(s.charts) };
+	}
 	private pushUndo() {
-		this.undoStack.push({ sheet: this.active, raw: [...this.sheet.raw] });
+		this.undoStack.push(this.snap());
 		if (this.undoStack.length > 100) this.undoStack.shift();
 		this.redoStack = [];
 	}
@@ -203,8 +237,9 @@ export class SheetView extends FileView {
 	redo() { this.commitEdit(); this.restore(this.redoStack, this.undoStack); }
 	private restore(from: typeof this.undoStack, to: typeof this.undoStack) {
 		const s = from.pop(); if (!s || !this.book) return;
-		to.push({ sheet: s.sheet, raw: [...this.book.sheets[s.sheet].raw] });
-		this.book.sheets[s.sheet].raw = new Map(s.raw);
+		to.push(this.snap(s.sheet));
+		const sh = this.book.sheets[s.sheet];
+		sh.raw = new Map(s.raw); sh.fmt = new Map(s.fmt); sh.charts = JSON.parse(s.charts);
 		this.active = s.sheet; this.changed(true);
 	}
 	setCell(r: number, c: number, raw: string, record = true) {
@@ -254,6 +289,26 @@ export class SheetView extends FileView {
 			new Notice(`Formula suggestions ${st.sheetSuggest ? "on" : "off"}`);
 		}, "Suggest");
 		sg.toggleClass("is-active", st.sheetSuggest);
+		if (st.sheetFormat) {
+			tb.createSpan("ms-tb-sep");
+			const bold = btn("bold", "Bold", () => this.applyFmt((f, on) => { if (on) f.b = 1; else delete f.b; }, (f) => !!f.b));
+			const ital = btn("italic", "Italic", () => this.applyFmt((f, on) => { if (on) f.i = 1; else delete f.i; }, (f) => !!f.i));
+			btn("baseline", "Text colour", (e) => this.colourPopup(e.currentTarget as HTMLElement, TEXT_COLOURS, (col) => this.applyFmt((f) => { if (col) f.c = col; else delete f.c; })));
+			btn("paint-bucket", "Fill colour", (e) => this.colourPopup(e.currentTarget as HTMLElement, FILL_COLOURS, (col) => this.applyFmt((f) => { if (col) f.bg = col; else delete f.bg; })));
+			for (const [al, icon, label] of [["l", "align-left", "Align left"], ["c", "align-center", "Centre"], ["r", "align-right", "Align right"]] as const) {
+				btn(icon, label, () => this.applyFmt((f, on) => { if (on) f.al = al; else delete f.al; }, (f) => f.al === al));
+			}
+			btn("hash", "Number format", (e) => this.numberFormatMenu(e), "123");
+			btn("eraser", "Clear formatting", () => this.applyFmt((f) => { for (const k of Object.keys(f)) delete (f as any)[k]; }));
+			void bold; void ital;
+		}
+		if (st.sheetCharts) {
+			tb.createSpan("ms-tb-sep");
+			btn("bar-chart-3", "Make a chart from the selected cells", (e) => this.chartMenu(e), "Chart");
+			const count = this.sheet.charts.length;
+			const cb = btn("panel-right", "Show or hide charts", () => { this.chartsOpen = !this.chartsOpen; this.syncChartsPane(); cb.toggleClass("is-active", this.chartsOpen); }, count ? `Charts (${count})` : "Charts");
+			cb.toggleClass("is-active", this.chartsOpen);
+		}
 
 		const fb = c.createDiv("ms-formula-bar");
 		this.refLabel = fb.createDiv("ms-ref-label");
@@ -264,8 +319,11 @@ export class SheetView extends FileView {
 		this.fbar.oninput = () => { if (this.editor && this.editor.input !== this.fbar) this.editor.input.value = this.fbar.value; this.updateSuggest(this.fbar); };
 		this.fbar.onkeydown = (e) => this.editKey(e, this.fbar);
 
-		this.gridWrap = c.createDiv("ms-grid-wrap");
+		const main = c.createDiv("ms-sheet-main");
+		this.gridWrap = main.createDiv("ms-grid-wrap");
 		this.gridWrap.tabIndex = 0;
+		this.chartsPane = main.createDiv("ms-charts");
+		this.fillHandle = undefined;
 		this.table = this.gridWrap.createEl("table", { cls: "ms-grid" });
 		const s = this.sheet;
 		const cg = this.table.createEl("colgroup");
@@ -302,7 +360,7 @@ export class SheetView extends FileView {
 		setIcon(add, "plus");
 		add.onclick = () => {
 			let n = this.book!.sheets.length + 1; while (this.book!.sheet("Sheet" + n)) n++;
-			this.book!.sheets.push({ name: "Sheet" + n, raw: new Map(), rows: 40, cols: 12, rowH: new Map(), colW: new Map() });
+			this.book!.sheets.push(newSheetModel("Sheet" + n));
 			this.active = this.book!.sheets.length - 1; this.changed(true);
 		};
 
@@ -342,6 +400,7 @@ export class SheetView extends FileView {
 		this.gridWrap.addEventListener("copy", (e) => { if (this.editor) return; e.preventDefault(); e.clipboardData?.setData("text/plain", this.selectionTSV(false)); });
 		this.gridWrap.addEventListener("cut", (e) => { if (this.editor) return; e.preventDefault(); e.clipboardData?.setData("text/plain", this.selectionTSV(false)); this.clearSelection(); });
 		this.gridWrap.addEventListener("paste", (e) => { if (this.editor) return; e.preventDefault(); this.paste(e.clipboardData?.getData("text/plain") ?? ""); });
+		this.buildChartPane();
 		this.drawSel();
 		this.gridWrap.focus({ preventScroll: true });
 	}
@@ -371,6 +430,7 @@ export class SheetView extends FileView {
 			const up = () => {
 				el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
 				document.body.removeClass("ms-resizing-row", "ms-resizing-col");
+				this.positionFill();
 				this.scheduleSave();
 			};
 			el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
@@ -392,11 +452,285 @@ export class SheetView extends FileView {
 			for (let c = 0; c < s.cols; c++) {
 				const td = tr.cells[c + 1];
 				const v = this.book!.value(s, addr(r, c));
-				td.setText(display(v));
+				const ref = addr(r, c);
+				const f = s.fmt.get(ref);
+				td.setText(displayValue(v, f?.nf));
 				td.toggleClass("is-num", typeof v === "number");
 				td.toggleClass("is-err", v instanceof FErr);
-				td.toggleClass("is-formula", !!s.raw.get(addr(r, c))?.startsWith("="));
+				td.toggleClass("is-formula", !!s.raw.get(ref)?.startsWith("="));
+				const css: string[] = [];
+				if (f) {
+					if (f.b) css.push("font-weight:700");
+					if (f.i) css.push("font-style:italic");
+					if (f.c) css.push(`color:${f.c}`);
+					if (f.bg) { css.push(`background:${f.bg}`); if (!f.c) css.push("color:#1e1e1e"); }
+					if (f.al) css.push(`text-align:${f.al === "l" ? "left" : f.al === "c" ? "center" : "right"}`);
+				}
+				td.style.cssText = css.join(";");
 			}
+		}
+		this.drawCharts();
+	}
+
+	// ---------- formatting ----------
+	private fmtAt(r: number, c: number): CellFmt { return this.sheet.fmt.get(addr(r, c)) ?? {}; }
+
+	/** Change the formatting of every selected cell. For on/off buttons, `isOn` says whether the cursor cell already has it. */
+	private applyFmt(change: (f: CellFmt, on: boolean) => void, isOn?: (f: CellFmt) => boolean) {
+		this.commitEdit();
+		const { r1, r2, c1, c2 } = this.range();
+		const on = isOn ? !isOn(this.fmtAt(this.sel.r, this.sel.c)) : true;
+		this.pushUndo();
+		for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+			const ref = addr(r, c);
+			const f: CellFmt = { ...(this.sheet.fmt.get(ref) ?? {}) };
+			change(f, on);
+			const clean = cleanFmt(f);
+			if (clean) this.sheet.fmt.set(ref, clean); else this.sheet.fmt.delete(ref);
+		}
+		this.changed();
+		this.drawSel();
+	}
+
+	private colourPopup(anchor: HTMLElement, palette: string[], pick: (c: string) => void) {
+		this.contentEl.querySelector(".ms-colour-pop")?.remove();
+		const pop = this.contentEl.createDiv("ms-colour-pop");
+		const r = anchor.getBoundingClientRect(), host = this.contentEl.getBoundingClientRect();
+		pop.style.left = Math.max(4, r.left - host.left) + "px";
+		pop.style.top = r.bottom - host.top + 4 + "px";
+		for (const col of palette) {
+			const b = pop.createEl("button", { cls: "ms-colour-sw" + (col ? "" : " is-none"), attr: { "aria-label": col || "Automatic (no colour)" } });
+			if (col) b.style.background = col;
+			b.onclick = () => { pop.remove(); pick(col); };
+		}
+		const close = (e: PointerEvent) => { if (!pop.contains(e.target as Node)) { pop.remove(); document.removeEventListener("pointerdown", close, true); } };
+		window.setTimeout(() => document.addEventListener("pointerdown", close, true), 0);
+	}
+
+	private numberFormatMenu(e: MouseEvent) {
+		const m = new Menu();
+		const cur = this.fmtAt(this.sel.r, this.sel.c).nf ?? "";
+		for (const f of NUMBER_FORMATS) m.addItem((it) => it.setTitle(f.label).setChecked(cur === f.nf).onClick(() => this.applyFmt((x) => { if (f.nf) x.nf = f.nf; else delete x.nf; })));
+		m.showAtMouseEvent(e);
+	}
+
+	// ---------- drag to fill ----------
+	private positionFill() {
+		if (!this.plugin.settings.sheetFill) { this.fillHandle?.remove(); this.fillHandle = undefined; return; }
+		const { r2, c2 } = this.range();
+		const td = this.table.tBodies[0].rows[r2]?.cells[c2 + 1];
+		if (!td || this.editor) { this.fillHandle?.addClass("is-hidden"); return; }
+		if (!this.fillHandle) {
+			const h = (this.fillHandle = this.gridWrap.createDiv({ cls: "ms-fill-handle", attr: { "aria-label": "Drag to fill" } }));
+			h.addEventListener("pointerdown", (e) => this.startFill(e));
+		}
+		this.fillHandle.removeClass("is-hidden");
+		const t = td.getBoundingClientRect(), w = this.gridWrap.getBoundingClientRect();
+		this.fillHandle.style.left = t.right - w.left + this.gridWrap.scrollLeft - 6 + "px";
+		this.fillHandle.style.top = t.bottom - w.top + this.gridWrap.scrollTop - 6 + "px";
+	}
+
+	private startFill(e: PointerEvent) {
+		e.preventDefault(); e.stopPropagation();
+		this.commitEdit();
+		const h = this.fillHandle!;
+		try { h.setPointerCapture(e.pointerId); } catch { /* not a live pointer */ }
+		const src = this.range();
+		const clearPreview = () => this.table.querySelectorAll(".is-fill-preview").forEach((x) => x.removeClass("is-fill-preview"));
+		const move = (ev: PointerEvent) => {
+			const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+			const td = el?.closest("td") as HTMLElement | null;
+			if (!td) return;
+			const tr = +td.dataset.r!, tc = +td.dataset.c!;
+			const dr = tr > src.r2 ? tr - src.r2 : tr < src.r1 ? tr - src.r1 : 0;
+			const dc = tc > src.c2 ? tc - src.c2 : tc < src.c1 ? tc - src.c1 : 0;
+			clearPreview();
+			if (!dr && !dc) { this.fillDrag = null; return; }
+			let dir: "down" | "up" | "left" | "right", count: number, target: { r1: number; r2: number; c1: number; c2: number };
+			if (Math.abs(dr) >= Math.abs(dc)) {
+				dir = dr > 0 ? "down" : "up"; count = Math.abs(dr);
+				target = dr > 0 ? { r1: src.r2 + 1, r2: src.r2 + dr, c1: src.c1, c2: src.c2 } : { r1: src.r1 + dr, r2: src.r1 - 1, c1: src.c1, c2: src.c2 };
+			} else {
+				dir = dc > 0 ? "right" : "left"; count = Math.abs(dc);
+				target = dc > 0 ? { r1: src.r1, r2: src.r2, c1: src.c2 + 1, c2: src.c2 + dc } : { r1: src.r1, r2: src.r2, c1: src.c1 + dc, c2: src.c1 - 1 };
+			}
+			this.fillDrag = { target, dir, count };
+			const body = this.table.tBodies[0];
+			for (let r = target.r1; r <= target.r2; r++) for (let c = target.c1; c <= target.c2; c++) body.rows[r]?.cells[c + 1]?.addClass("is-fill-preview");
+		};
+		const up = () => {
+			h.removeEventListener("pointermove", move); h.removeEventListener("pointerup", up); h.removeEventListener("pointercancel", up);
+			clearPreview();
+			const d = this.fillDrag; this.fillDrag = null;
+			if (d) this.doFill(src, d.dir, d.count);
+		};
+		h.addEventListener("pointermove", move); h.addEventListener("pointerup", up); h.addEventListener("pointercancel", up);
+	}
+
+	/** Continue what's in the selected cells into `count` more cells (numbers count on, "Item 1" counts on, formulas copy with their references moved). */
+	private doFill(src: { r1: number; r2: number; c1: number; c2: number }, dir: "down" | "up" | "left" | "right", count: number) {
+		const s = this.sheet;
+		this.pushUndo();
+		const vertical = dir === "down" || dir === "up";
+		const back = dir === "up" || dir === "left";
+		const lines = vertical ? src.c2 - src.c1 + 1 : src.r2 - src.r1 + 1;
+		const len = vertical ? src.r2 - src.r1 + 1 : src.c2 - src.c1 + 1;
+		const at = (line: number, i: number) => vertical ? { r: src.r1 + i, c: src.c1 + line } : { r: src.r1 + line, c: src.c1 + i };
+		for (let line = 0; line < lines; line++) {
+			const refs = Array.from({ length: len }, (_, i) => { const p = at(line, i); return addr(p.r, p.c); });
+			const raws = refs.map((ref) => s.raw.get(ref) ?? "");
+			const plan = planFill(raws, count, back);
+			plan.forEach((step, k) => {
+				const i = back ? -1 - k : len + k;
+				const p = at(line, i);
+				if (p.r < 0 || p.c < 0) return;
+				let raw: string, from: number;
+				if (step.raw !== undefined) { raw = step.raw; from = back ? 0 : len - 1; }
+				else { from = step.from!; const sr = raws[from]; raw = sr.startsWith("=") ? shiftFormula(sr, vertical ? step.shift! : 0, vertical ? 0 : step.shift!) : sr; }
+				this.setCell(p.r, p.c, raw, false);
+				const f = s.fmt.get(refs[from]);
+				if (f) s.fmt.set(addr(p.r, p.c), { ...f }); else s.fmt.delete(addr(p.r, p.c));
+			});
+		}
+		const last = back ? (vertical ? { r1: src.r1 - count, r2: src.r2, c1: src.c1, c2: src.c2 } : { r1: src.r1, r2: src.r2, c1: src.c1 - count, c2: src.c2 }) : (vertical ? { r1: src.r1, r2: src.r2 + count, c1: src.c1, c2: src.c2 } : { r1: src.r1, r2: src.r2, c1: src.c1, c2: src.c2 + count });
+		this.anchor = { r: Math.max(0, last.r1), c: Math.max(0, last.c1) };
+		this.sel = { r: last.r2, c: last.c2 };
+		this.changed(true);
+	}
+
+	// ---------- charts ----------
+	private chartTheme(): ChartTheme {
+		const cs = getComputedStyle(document.body);
+		const get = (v: string, fb: string) => cs.getPropertyValue(v).trim() || fb;
+		return { fg: get("--text-normal", "#222"), muted: get("--text-muted", "#777"), grid: get("--background-modifier-border", "#ddd"), bg: get("--background-primary", "#fff") };
+	}
+
+	private gridValues(range: string): V[][] | null {
+		const p = parseRange(range);
+		if (!p) return null;
+		const out: V[][] = [];
+		for (let r = p.r1; r <= p.r2; r++) { const row: V[] = []; for (let c = p.c1; c <= p.c2; c++) row.push(this.book!.value(this.sheet, addr(r, c))); out.push(row); }
+		return out;
+	}
+
+	/** The block of filled-in cells around a cell, like Excel's "current region". */
+	private currentRegion(r: number, c: number) {
+		const s = this.sheet;
+		const has = (rr: number, cc: number) => rr >= 0 && cc >= 0 && (s.raw.get(addr(rr, cc)) ?? "") !== "";
+		let start = has(r, c) ? { r, c } : null;
+		if (!start) for (const [dr, dc] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) if (has(r + dr, c + dc)) { start = { r: r + dr, c: c + dc }; break; }
+		if (!start) return null;
+		let r1 = start.r, r2 = start.r, c1 = start.c, c2 = start.c, grew = true;
+		const any = (ra: number, rb: number, ca: number, cb: number) => { for (let i = ra; i <= rb; i++) for (let j = ca; j <= cb; j++) if (has(i, j)) return true; return false; };
+		while (grew) {
+			grew = false;
+			if (any(r1 - 1, r1 - 1, c1 - 1, c2 + 1)) { r1--; grew = true; }
+			if (any(r2 + 1, r2 + 1, c1 - 1, c2 + 1)) { r2++; grew = true; }
+			if (any(r1 - 1, r2 + 1, c1 - 1, c1 - 1)) { c1--; grew = true; }
+			if (any(r1 - 1, r2 + 1, c2 + 1, c2 + 1)) { c2++; grew = true; }
+			r1 = Math.max(0, r1); c1 = Math.max(0, c1);
+		}
+		return { r1, r2, c1, c2 };
+	}
+
+	private chartMenu(e: MouseEvent) {
+		const m = new Menu();
+		const types: [ChartType, string, string][] = [["bar", "Bar chart", "bar-chart-3"], ["line", "Line chart", "line-chart"], ["pie", "Pie chart", "pie-chart"], ["scatter", "Scatter (x and y numbers)", "scatter-chart"]];
+		for (const [t, label, icon] of types) m.addItem((it) => it.setTitle(label).setIcon(icon).onClick(() => this.createChart(t)));
+		m.showAtMouseEvent(e);
+	}
+
+	private createChart(type: ChartType) {
+		this.commitEdit();
+		const sel = this.range();
+		const one = sel.r1 === sel.r2 && sel.c1 === sel.c2;
+		const reg = one ? this.currentRegion(sel.r1, sel.c1) : sel;
+		if (!reg) { new Notice("Type some numbers in cells first, then select them and press Chart."); return; }
+		this.pushUndo();
+		const def: ChartDef = { id: Math.random().toString(36).slice(2, 9), type, title: `Chart ${this.sheet.charts.length + 1}`, range: `${addr(reg.r1, reg.c1)}:${addr(reg.r2, reg.c2)}` };
+		this.sheet.charts.push(def);
+		this.chartsOpen = true;
+		this.changed(true);
+	}
+
+	private syncChartsPane() { this.chartsPane?.toggleClass("is-open", this.chartsOpen); }
+
+	private buildChartPane() {
+		const pane = this.chartsPane;
+		if (!pane) return;
+		pane.empty(); this.chartHosts.clear();
+		this.syncChartsPane();
+		const s = this.sheet;
+		if (!this.plugin.settings.sheetCharts) return;
+		if (!s.charts.length) {
+			pane.createDiv({ cls: "ms-charts-empty", text: "No charts yet. Select some cells and press Chart." });
+			return;
+		}
+		for (const def of s.charts) {
+			const card = pane.createDiv("ms-chart-card");
+			const head = card.createDiv("ms-chart-head");
+			const title = head.createEl("input", { type: "text", cls: "ms-chart-title", attr: { placeholder: "Chart title" } });
+			title.value = def.title;
+			title.oninput = () => { def.title = title.value; this.drawCharts(); this.scheduleSave(); };
+			const type = head.createEl("select", { cls: "dropdown ms-chart-type" });
+			for (const [v, l] of [["bar", "Bar"], ["line", "Line"], ["pie", "Pie"], ["scatter", "Scatter"]]) type.createEl("option", { value: v, text: l });
+			type.value = def.type;
+			type.onchange = () => { this.pushUndo(); def.type = type.value as ChartType; this.drawCharts(); this.scheduleSave(); };
+			const row = card.createDiv("ms-chart-row");
+			row.createSpan({ text: "Cells" });
+			const range = row.createEl("input", { type: "text", cls: "ms-chart-range" });
+			range.value = def.range;
+			range.onchange = () => {
+				const p = parseRange(range.value);
+				if (!p) { new Notice("Use cells like A1:C6."); range.value = def.range; return; }
+				this.pushUndo(); def.range = `${addr(p.r1, p.c1)}:${addr(p.r2, p.c2)}`; range.value = def.range; this.drawCharts(); this.scheduleSave();
+			};
+			const pick = row.createEl("button", { cls: "ms-chart-btn", attr: { "aria-label": "Use the cells I have selected" }, text: "Use selection" });
+			pick.onclick = () => { const r = this.range(); this.pushUndo(); def.range = `${addr(r.r1, r.c1)}:${addr(r.r2, r.c2)}`; range.value = def.range; this.drawCharts(); this.scheduleSave(); };
+			const save = row.createEl("button", { cls: "ms-chart-btn clickable-icon", attr: { "aria-label": "Save as an image in your vault" } });
+			setIcon(save, "image-down");
+			save.onclick = () => this.saveChartImage(def);
+			const del = row.createEl("button", { cls: "ms-chart-btn clickable-icon", attr: { "aria-label": "Delete chart" } });
+			setIcon(del, "trash-2");
+			del.onclick = () => { this.pushUndo(); s.charts = s.charts.filter((c) => c.id !== def.id); this.changed(true); };
+			this.chartHosts.set(def.id, card.createDiv("ms-chart-svg"));
+		}
+		this.drawCharts();
+	}
+
+	/** Redraw every chart's picture from the current cell values. */
+	private drawCharts() {
+		if (!this.chartsPane || !this.plugin.settings.sheetCharts) return;
+		const theme = this.chartTheme();
+		for (const def of this.sheet.charts) {
+			const host = this.chartHosts.get(def.id);
+			if (!host) continue;
+			host.empty();
+			const grid = this.gridValues(def.range);
+			if (!grid) { host.setText("Can't read those cells."); continue; }
+			host.appendChild(renderChart(def, chartData(grid, def.type), theme));
+		}
+	}
+
+	private async saveChartImage(def: ChartDef) {
+		const grid = this.gridValues(def.range);
+		if (!grid || !this.file) return;
+		try {
+			const svg = renderChart(def, chartData(grid, def.type), { fg: "#1e1e1e", muted: "#666666", grid: "#e3e3e3", bg: "#ffffff" }, 800, 520);
+			const xml = new XMLSerializer().serializeToString(svg);
+			const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml); });
+			const c = createEl("canvas"); c.width = 1600; c.height = 1040;
+			c.getContext("2d")!.drawImage(img, 0, 0, 1600, 1040);
+			const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
+			if (!blob) throw new Error("no image");
+			const name = (def.title || "Chart").replace(/[\\/:*?"<>|#^\[\]]/g, "").trim() || "Chart";
+			const path = await this.app.fileManager.getAvailablePathForAttachment(`${name}.png`, this.file.path);
+			const file = await this.app.vault.createBinary(path, await blob.arrayBuffer());
+			try { await navigator.clipboard.writeText(`![[${file.path}]]`); } catch { /* clipboard not available */ }
+			new Notice(`Saved ${file.name}. A link is on your clipboard, and you can add it to a note, board or slide as an image.`);
+		} catch (e) {
+			console.error(e);
+			new Notice("Couldn't save that chart as an image.");
 		}
 	}
 
@@ -417,6 +751,7 @@ export class SheetView extends FileView {
 		if (!this.editor) this.fbar.value = this.sheet.raw.get(addr(this.sel.r, this.sel.c)) ?? "";
 		this.table.tHead!.rows[0].querySelectorAll("th").forEach((th) => th.toggleClass("is-hl", !!th.dataset.c && +th.dataset.c >= c1 && +th.dataset.c <= c2));
 		body.querySelectorAll("th").forEach((th) => th.toggleClass("is-hl", +th.dataset.r! >= r1 && +th.dataset.r! <= r2));
+		this.positionFill();
 	}
 
 	private move(dr: number, dc: number, extend = false) {
@@ -473,6 +808,7 @@ export class SheetView extends FileView {
 		input.value = raw;
 		this.fbar.value = raw;
 		this.editor = { input, r, c, fromBar };
+		this.fillHandle?.addClass("is-hidden");
 		if (fromBar) {
 			this.fbar.onblur = () => window.setTimeout(() => { if (this.editor?.input === this.fbar && document.activeElement !== this.fbar) this.commitEdit(); }, 150);
 		}

@@ -1,6 +1,6 @@
 import { Component, Menu, Notice, Platform, TextFileView, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type BitsAndBobs from "./main";
-import { Board, BoardDoc, El, parseBoard, serializeBoard, uid } from "./board";
+import { Board, BoardDoc, El, StrokeEl, parseBoard, serializeBoard, strokePath, uid } from "./board";
 import { LAYOUTS, LayoutPicker } from "./layouts";
 
 export const VIEW_BOARD = "math-studio-board";
@@ -212,27 +212,72 @@ export class SlidesView extends TextFileView {
 	async onClose() { this.thumbs.forEach((t) => this.removeChild(t)); if (this.board) this.removeChild(this.board); this.board = null; }
 }
 
-/** Full-screen presentation. Arrow keys / space / tap / swipe to move. */
+type InkTool = "none" | "pen" | "highlighter" | "laser";
+const INK_PEN = ["#e03131", "#1971c2", "#2f9e44", "#ffffff", "#f08c00"];
+const INK_HL = ["#ffd43b", "#8ce99a", "#faa2c1", "#74c0fc"];
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Full-screen presentation. Arrow keys / space / tap / swipe to move, and you can draw on the slide while presenting. */
 export class Presenter extends Component {
 	private el!: HTMLElement;
 	private board: Board | null = null;
 	private i: number;
 	private counter!: HTMLElement;
+	// drawing while presenting
+	private inkTool: InkTool = "none";
+	private penColor = INK_PEN[0];
+	private hlColor = INK_HL[0];
+	private inkLayer!: HTMLElement;
+	private inkSvg!: SVGSVGElement;
+	private laser!: HTMLElement;
+	private laserTrail!: SVGPathElement;
+	private trail: { x: number; y: number; t: number }[] = [];
+	private trailFrame = 0;
+	private ink = new Map<number, StrokeEl[]>();
+	private penSeen = false;
+	private inkBtns = new Map<string, HTMLElement>();
+	private swatchBar!: HTMLElement;
+	private bar!: HTMLElement;
+
 	constructor(private plugin: BitsAndBobs, private deck: Deck, private sourcePath: string, start: number) { super(); this.i = start; }
+
 	open() {
 		this.el = document.body.createDiv("ms-present");
 		const stage = this.el.createDiv("ms-present-stage");
-		const bar = this.el.createDiv("ms-present-bar");
-		const b = (icon: string, label: string, fn: () => void) => { const x = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } }); setIcon(x, icon); x.onclick = (e) => { e.stopPropagation(); fn(); }; };
+		const draw = this.plugin.settings.presentDraw;
+		if (draw) this.buildInkLayer();
+		const bar = (this.bar = this.el.createDiv("ms-present-bar"));
+		const b = (icon: string, label: string, fn: () => void, key?: string) => {
+			const x = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
+			setIcon(x, icon);
+			x.onclick = (e) => { e.stopPropagation(); fn(); };
+			if (key) this.inkBtns.set(key, x);
+			return x;
+		};
 		b("chevron-left", "Previous", () => this.go(this.i - 1));
 		this.counter = bar.createSpan("ms-present-count");
 		b("chevron-right", "Next", () => this.go(this.i + 1));
+		if (draw) {
+			bar.createSpan("ms-present-sep");
+			b("pen-tool", "Pen (P)", () => this.setInk("pen"), "pen");
+			b("highlighter", "Highlighter (H)", () => this.setInk("highlighter"), "highlighter");
+			b("target", "Laser pointer (L)", () => this.setInk("laser"), "laser");
+			b("eraser", "Clear drawing on this slide (C)", () => this.clearInk());
+			this.swatchBar = bar.createSpan("ms-present-swatches");
+		}
+		bar.createSpan("ms-present-sep");
 		b("x", "Exit (Esc)", () => this.close());
 		super.load();
 		this.registerDomEvent(document, "keydown", (e) => {
+			const k = e.key.toLowerCase();
 			if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.go(this.i + 1); }
 			else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.go(this.i - 1); }
-			else if (e.key === "Escape") { e.preventDefault(); this.close(); }
+			else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (this.inkTool !== "none") this.setInk("none"); else this.close(); }
+			else if (draw && !e.metaKey && !e.ctrlKey && !e.altKey && ["p", "h", "l", "c", "e"].includes(k)) {
+				e.preventDefault(); e.stopPropagation();
+				if (k === "c" || k === "e") this.clearInk();
+				else { const t: InkTool = k === "p" ? "pen" : k === "h" ? "highlighter" : "laser"; this.setInk(this.inkTool === t ? "none" : t); }
+			}
 		}, { capture: true });
 		let sx = 0, sy = 0;
 		this.registerDomEvent(stage, "pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
@@ -244,7 +289,106 @@ export class Presenter extends Component {
 		this.registerDomEvent(document, "fullscreenchange", () => { if (!document.fullscreenElement && this.el.isConnected && !Platform.isMobile) this.close(); });
 		if (!Platform.isMobile && this.plugin.settings.presentFullscreen) this.el.requestFullscreen?.().catch(() => {});
 		this.show();
+		this.syncInk();
 	}
+
+	// ---------- drawing on top of the slide ----------
+	private buildInkLayer() {
+		this.inkLayer = this.el.createDiv("ms-present-ink");
+		this.inkSvg = document.createElementNS(SVG_NS, "svg");
+		this.inkSvg.addClass("ms-present-ink-svg");
+		this.inkLayer.appendChild(this.inkSvg);
+		this.laserTrail = document.createElementNS(SVG_NS, "path");
+		this.laserTrail.addClass("ms-laser-trail");
+		this.inkSvg.appendChild(this.laserTrail);
+		this.laser = this.inkLayer.createDiv("ms-laser");
+		let cur: { el: StrokeEl; path: SVGPathElement } | null = null;
+		const pos = (e: PointerEvent) => { const r = this.inkLayer.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+		const moveLaser = (e: PointerEvent) => {
+			const { x, y } = pos(e);
+			this.laser.setCssStyles({ left: x + "px", top: y + "px", display: "block" });
+			this.trail.push({ x, y, t: performance.now() });
+			if (!this.trailFrame) this.trailFrame = requestAnimationFrame(() => this.drawTrail());
+		};
+		this.registerDomEvent(this.inkLayer, "pointerdown", (e) => {
+			e.preventDefault(); e.stopPropagation();
+			if (e.pointerType === "pen") this.penSeen = true;
+			if (this.inkTool === "laser") { moveLaser(e); return; }
+			if (e.pointerType === "touch" && this.penSeen) return; // palm: ignore once a pen is in use
+			try { this.inkLayer.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+			const { x, y } = pos(e);
+			const hl = this.inkTool === "highlighter";
+			const isPen = e.pointerType === "pen" && e.pressure > 0 && this.plugin.settings.pressure;
+			const el: StrokeEl = { id: uid(), type: "stroke", pts: [[x, y, isPen ? e.pressure : 0.5]], color: hl ? this.hlColor : this.penColor, size: hl ? 26 : 5, ...(hl ? { hl: true } : {}), ...(isPen && !hl ? { pen: true } : {}) };
+			cur = { el, path: this.addInkPath(el) };
+		});
+		this.registerDomEvent(this.inkLayer, "pointermove", (e) => {
+			if (this.inkTool === "laser") { moveLaser(e); return; }
+			if (!cur) return;
+			for (const ev of typeof e.getCoalescedEvents === "function" && e.getCoalescedEvents().length ? e.getCoalescedEvents() : [e]) {
+				const { x, y } = pos(ev);
+				cur.el.pts.push([x, y, cur.el.pen ? Math.max(0.05, ev.pressure) : 0.5]);
+			}
+			cur.path.setAttribute("d", strokePath(cur.el));
+		});
+		const end = () => {
+			if (cur) { const list = this.ink.get(this.i) ?? []; list.push(cur.el); this.ink.set(this.i, list); cur = null; }
+		};
+		this.registerDomEvent(this.inkLayer, "pointerup", end);
+		this.registerDomEvent(this.inkLayer, "pointercancel", end);
+		this.registerDomEvent(this.inkLayer, "pointerleave", () => { if (this.inkTool === "laser") this.laser.setCssStyles({ display: "none" }); });
+	}
+
+	private addInkPath(el: StrokeEl) {
+		const g = document.createElementNS(SVG_NS, "path");
+		g.setAttribute("d", strokePath(el));
+		g.setCssStyles({ fill: el.color });
+		if (el.hl) g.addClass("is-hl");
+		this.inkSvg.insertBefore(g, this.laserTrail);
+		return g;
+	}
+
+	private drawTrail() {
+		this.trailFrame = 0;
+		const now = performance.now();
+		this.trail = this.trail.filter((p) => now - p.t < 450);
+		this.laserTrail.setAttribute("d", this.trail.length > 1 ? this.trail.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") : "");
+		if (this.trail.length) this.trailFrame = requestAnimationFrame(() => this.drawTrail());
+	}
+
+	private renderInk() {
+		if (!this.inkSvg) return;
+		this.inkSvg.querySelectorAll("path:not(.ms-laser-trail)").forEach((n) => n.remove());
+		for (const el of this.ink.get(this.i) ?? []) this.addInkPath(el);
+	}
+
+	private clearInk() {
+		this.ink.delete(this.i);
+		this.renderInk();
+	}
+
+	private setInk(t: InkTool) {
+		this.inkTool = t;
+		this.syncInk();
+	}
+
+	private syncInk() {
+		if (!this.inkLayer) return;
+		this.inkLayer.toggleClass("is-active", this.inkTool !== "none");
+		this.inkLayer.dataset.tool = this.inkTool;
+		this.el.toggleClass("is-inking", this.inkTool !== "none");
+		for (const [k, b] of this.inkBtns) b.toggleClass("is-active", k === this.inkTool);
+		if (this.inkTool !== "laser") { this.laser.setCssStyles({ display: "none" }); this.trail = []; this.laserTrail.setAttribute("d", ""); }
+		this.swatchBar.empty();
+		const colours = this.inkTool === "pen" ? INK_PEN : this.inkTool === "highlighter" ? INK_HL : [];
+		for (const c of colours) {
+			const sw = this.swatchBar.createEl("button", { cls: "ms-present-swatch", attr: { "aria-label": c } });
+			sw.setCssStyles({ background: c });
+			sw.toggleClass("is-active", c === (this.inkTool === "pen" ? this.penColor : this.hlColor));
+			sw.onclick = (e) => { e.stopPropagation(); if (this.inkTool === "pen") this.penColor = c; else this.hlColor = c; this.syncInk(); };
+		}
+	}
+
 	private show() {
 		const stage = this.el.querySelector(".ms-present-stage") as HTMLElement;
 		if (this.board) this.removeChild(this.board);
@@ -253,6 +397,7 @@ export class Presenter extends Component {
 		this.board = new Board(this.plugin, stage, { elements: s.elements, bg: s.bg }, { sourcePath: this.sourcePath, frame: { w: this.deck.w, h: this.deck.h }, readOnly: true });
 		this.addChild(this.board);
 		this.counter.setText(`${this.i + 1} / ${this.deck.slides.length}`);
+		this.renderInk();
 	}
 	private go(i: number) {
 		if (i >= this.deck.slides.length) { this.close(); return; }
@@ -260,6 +405,7 @@ export class Presenter extends Component {
 		this.i = i; this.show();
 	}
 	close() {
+		if (this.trailFrame) cancelAnimationFrame(this.trailFrame);
 		if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 		this.unload();
 		this.el.remove();

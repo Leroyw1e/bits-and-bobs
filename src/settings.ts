@@ -28,12 +28,20 @@ export interface BitsSettings {
 	tbMaths: boolean;
 	tbGraph: boolean;
 	tbImages: boolean;
+	tbLasso: boolean;
+	tbTrace: boolean;
+	shapeSnap: boolean;
+	snapHoldMs: number;
 	// slides
 	speakerNotes: boolean;
 	presentFullscreen: boolean;
+	presentDraw: boolean;
 	// spreadsheets
 	sheetAutocorrect: boolean;
 	sheetSuggest: boolean;
+	sheetFormat: boolean;
+	sheetFill: boolean;
+	sheetCharts: boolean;
 	// other
 	homeButtons: boolean;
 	newFileFolder: string;
@@ -43,9 +51,9 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	boards: true, slides: true, sheets: true, embeds: true, ribbon: true, symbolSearch: true,
 	mathShortcuts: true, statusBar: true, mobileToolbar: true, mobileToolbarAdded: false,
 	fingerDraws: true, pencilOnlyAfterPen: true, pressure: true, penSize: 4, defaultBg: "grid", canvasDraw: true,
-	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true,
-	speakerNotes: true, presentFullscreen: true,
-	sheetAutocorrect: false, sheetSuggest: true,
+	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, shapeSnap: true, snapHoldMs: 600,
+	speakerNotes: true, presentFullscreen: true, presentDraw: true,
+	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true,
 	homeButtons: true, newFileFolder: "",
 };
 
@@ -90,20 +98,29 @@ export class BitsSettingTab extends PluginSettingTab {
 			.addDropdown((d) => d.addOptions({ "2": "Fine", "4": "Medium", "8": "Bold", "14": "Marker" }).setValue(String(s.penSize)).onChange(async (v) => { s.penSize = parseInt(v); await this.plugin.saveSettings(); }));
 		new Setting(containerEl).setName("Background for new boards")
 			.addDropdown((d) => d.addOptions({ grid: "Grid", dots: "Dots", lines: "Lined", plain: "Plain" }).setValue(s.defaultBg).onChange(async (v) => { s.defaultBg = v as Bg; await this.plugin.saveSettings(); }));
+		toggle("shapeSnap", "Snap shapes when you hold the pen", "Draw a line, circle, rectangle or triangle, then hold the pen still at the end and it turns into a clean shape. Lines can then be aimed before you lift.");
+		new Setting(containerEl).setName("Hold time before snapping").setDesc("How long to hold the pen still.")
+			.addDropdown((d) => d.addOptions({ "400": "Short (0.4 s)", "600": "Normal (0.6 s)", "900": "Long (0.9 s)" }).setValue(String(s.snapHoldMs)).onChange(async (v) => { s.snapHoldMs = parseInt(v); await this.plugin.saveSettings(); }));
 		toggle("canvasDraw", "Draw straight onto Canvas cards", "When off, select the card first; drag cards by their title either way.", () => this.plugin.applyBodyClasses());
 		toggle("tbHighlighter", "Highlighter tool", "Show the highlighter in the board toolbar.");
 		toggle("tbShapes", "Shape tools", "Show rectangle, circle, line and arrow.");
 		toggle("tbMaths", "Maths tools", "Show the maths box and symbol buttons.");
 		toggle("tbGraph", "Graph tool", "Show the graph button.");
+		toggle("tbTrace", "Graph trace tool", "Show the button for reading values off a graph.");
+		toggle("tbLasso", "Lasso tool", "Show the lasso button for circling things to select them.");
 		toggle("tbImages", "Image tool", "Show the add image button.");
 		containerEl.createDiv({ cls: "setting-item-description ms-note", text: "Toolbar changes apply to boards you open next." });
 
 		new Setting(containerEl).setName("Slides").setHeading();
 		toggle("speakerNotes", "Speaker notes", "Show the notes box under each slide.");
+		toggle("presentDraw", "Draw while presenting", "Pen, highlighter and laser pointer on top of the slide. Drawings are cleared when you finish.");
 		toggle("presentFullscreen", "Present in full screen", "On desktop, presenting fills the whole screen.");
 
 		new Setting(containerEl).setName("Spreadsheets").setHeading();
 		toggle("sheetAutocorrect", "Autocorrect and predictions", "Let the keyboard fix spelling and suggest words in cells. Usually best off for numbers and formulas.");
+		toggle("sheetFormat", "Formatting buttons", "Bold, italic, colours, alignment and number formats. Colours and bold are kept by this plugin; number formats are also saved in the Excel file.");
+		toggle("sheetFill", "Drag to fill", "A small square on the selection that you drag to continue numbers, dates like Mon and Tue, and formulas.");
+		toggle("sheetCharts", "Charts", "Make bar, line, pie and scatter charts from cells, shown next to the spreadsheet.");
 		toggle("sheetSuggest", "Suggest functions", "Typing =SU shows SUM and SUMSQ. Press Tab or Enter to pick one.");
 
 		new Setting(containerEl).setName("Other plugins").setHeading();
@@ -115,8 +132,9 @@ export class BitsSettingTab extends PluginSettingTab {
 		for (const t of MATH_TOOLS) row(t.name, shortcutLabel(t));
 		row("Search symbols while typing", "\\ then a name");
 		row("Board: pen, highlighter, eraser", "P  H  E");
-		row("Board: select, text, maths box, graph", "V  T  M  G");
+		row("Board: select, lasso, text, maths box, graph, trace", "V  S  T  M  G  C");
 		row("Board: shapes", "R  O  L  A");
+		row("Presenting: pen, highlighter, laser, clear", "P  H  L  C");
 		row("Board: colours, sizes", "1–6  [ ]");
 		row("Board: pan, fit to screen", "Space  0");
 		containerEl.createDiv({ cls: "setting-item-description ms-note", text: Platform.isMobile ? "Shortcuts work with a hardware keyboard." : "You can also give any Bits and Bobs command your own hotkey in Settings → Hotkeys." });

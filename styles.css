@@ -138,8 +138,9 @@
 .ms-grid th.is-hl { background: var(--background-modifier-hover); color: var(--text-normal); }
 .ms-grid td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
 .ms-grid td.is-err { color: var(--text-error); }
-.ms-grid td.is-selected { background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary)); }
-.ms-grid td.is-cursor { box-shadow: inset 0 0 0 2px var(--interactive-accent); }
+.ms-grid td.is-selected { box-shadow: inset 0 0 0 100px color-mix(in srgb, var(--interactive-accent) 14%, transparent); }
+.ms-grid td.is-cursor { box-shadow: inset 0 0 0 2px var(--interactive-accent), inset 0 0 0 100px color-mix(in srgb, var(--interactive-accent) 8%, transparent); }
+.ms-grid td.is-fill-preview { box-shadow: inset 0 0 0 1px var(--interactive-accent), inset 0 0 0 100px color-mix(in srgb, var(--interactive-accent) 10%, transparent); }
 .ms-cell-edit { position: absolute; inset: 0; width: 100%; height: 100%; border: none !important; border-radius: 0 !important; box-shadow: inset 0 0 0 2px var(--interactive-accent) !important; padding: 0 6px; font-size: inherit; font-family: var(--font-monospace); background: var(--background-primary); z-index: 1; }
 .ms-sheet-tabs { display: flex; gap: 2px; padding: 4px 8px; border-top: 1px solid var(--background-modifier-border); background: var(--background-secondary); overflow-x: auto; flex-shrink: 0; }
 .ms-sheet-tab { padding: 4px 12px; font-size: var(--font-ui-small); background: transparent; box-shadow: none; border-radius: 4px; }
@@ -215,3 +216,61 @@ body.ms-resizing-row, body.ms-resizing-row * { cursor: row-resize !important; }
 .ms-fn-suggest-row { display: flex; gap: 10px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: var(--font-ui-small); }
 .ms-fn-suggest-row.is-selected, .ms-fn-suggest-row:hover { background: var(--background-modifier-hover); }
 .ms-fn-suggest-row .ms-fn-name { min-width: 80px; }
+
+/* lasso, snap and trace */
+.ms-board[data-tool="lasso"] .ms-viewport, .ms-board[data-tool="trace"] .ms-viewport { cursor: crosshair; }
+.ms-lasso-line { fill: color-mix(in srgb, var(--ms-accent) 10%, transparent); stroke: var(--ms-accent); stroke-width: 1.6; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.ms-sel-group { position: absolute; border: calc(1.5px / var(--ms-z, 1)) dashed var(--ms-accent); border-radius: calc(4px / var(--ms-z, 1)); margin: calc(-6px / var(--ms-z, 1)); padding: calc(6px / var(--ms-z, 1)); box-sizing: content-box; background: color-mix(in srgb, var(--ms-accent) 5%, transparent); }
+.ms-board.is-snapped .ms-viewport { animation: ms-snap .22s ease-out; }
+@keyframes ms-snap { 0% { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 70%, transparent); } 100% { box-shadow: inset 0 0 0 0 transparent; } }
+.ms-trace { position: absolute; pointer-events: none; }
+.ms-trace svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.ms-trace-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 3; }
+.ms-trace-dot { stroke: var(--background-primary); stroke-width: 2; }
+.ms-trace-read { position: absolute; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-family: var(--font-monospace); white-space: nowrap; box-shadow: var(--shadow-s); }
+.ms-trace-x { color: var(--text-muted); }
+.ms-graph-shade { fill-opacity: .16; stroke: none; }
+.ms-graph-point { stroke: var(--background-primary); stroke-width: 2; }
+.ms-graph-point-label { font-size: 11px; font-family: var(--font-interface); font-weight: 600; paint-order: stroke; stroke: var(--background-primary); stroke-width: 3px; }
+
+/* drawing while presenting */
+.ms-present-ink { position: absolute; inset: 0; z-index: 1; pointer-events: none; touch-action: none; }
+.ms-present-ink.is-active { pointer-events: auto; }
+.ms-present-ink[data-tool="pen"], .ms-present-ink[data-tool="highlighter"] { cursor: crosshair; }
+.ms-present-ink[data-tool="laser"] { cursor: none; }
+.ms-present-ink-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.ms-present-ink-svg path.is-hl { mix-blend-mode: screen; opacity: .55; }
+.ms-laser-trail { fill: none; stroke: #ff3b30; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; opacity: .55; filter: blur(1px); }
+.ms-laser { display: none; position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: radial-gradient(circle, #fff 0 18%, #ff3b30 30%, rgba(255,59,48,.45) 62%, transparent 72%); pointer-events: none; }
+.ms-present.is-inking .ms-present-bar { opacity: .95; }
+.ms-present-bar button.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+.ms-present-sep { width: 1px; height: 18px; background: rgba(255,255,255,.3); margin: 0 4px; }
+.ms-present-swatches { display: inline-flex; gap: 4px; align-items: center; }
+.ms-present-swatch { width: 20px; height: 20px; min-width: 20px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); box-shadow: none; }
+.ms-present-swatch.is-active { border-color: #fff; }
+
+/* spreadsheet: formatting, fill, charts */
+.ms-tb-sep { width: 1px; align-self: stretch; margin: 4px 6px; background: var(--background-modifier-border); flex-shrink: 0; }
+.ms-sheet-main { display: flex; flex: 1; min-height: 0; }
+.ms-grid-wrap { position: relative; }
+.ms-colour-pop { position: absolute; z-index: 30; display: flex; gap: 6px; padding: 8px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: var(--shadow-l); }
+.ms-colour-sw { width: 26px; height: 26px; min-width: 26px; padding: 0; border-radius: 50%; border: 2px solid var(--background-primary); box-shadow: 0 0 0 1px var(--background-modifier-border); }
+.ms-colour-sw.is-none { background: linear-gradient(to top right, transparent 45%, var(--text-error) 45% 55%, transparent 55%), var(--background-primary); }
+.is-mobile .ms-colour-sw { width: 34px; height: 34px; }
+.ms-fill-handle { position: absolute; z-index: 5; width: 11px; height: 11px; background: var(--interactive-accent); border: 2px solid var(--background-primary); border-radius: 2px; cursor: crosshair; touch-action: none; }
+.ms-fill-handle.is-hidden { display: none; }
+.is-mobile .ms-fill-handle { width: 20px; height: 20px; margin: -5px 0 0 -5px; border-radius: 50%; }
+.ms-charts { display: none; width: 440px; flex: none; overflow-y: auto; padding: 10px; flex-direction: column; gap: 12px; border-left: 1px solid var(--background-modifier-border); background: var(--background-secondary); }
+.ms-charts.is-open { display: flex; }
+.ms-charts-empty { color: var(--text-muted); padding: 16px 4px; font-size: var(--font-ui-small); }
+.ms-chart-card { background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.ms-chart-head, .ms-chart-row { display: flex; gap: 6px; align-items: center; }
+.ms-chart-title { flex: 1; min-width: 0; font-weight: 600; }
+.ms-chart-range { width: 90px; font-family: var(--font-monospace); }
+.ms-chart-row > span { color: var(--text-muted); font-size: var(--font-ui-small); }
+.ms-chart-btn { font-size: var(--font-ui-smaller); padding: 2px 8px; height: auto; }
+.ms-chart-svg svg { width: 100%; height: auto; display: block; border-radius: 6px; }
+@media (max-width: 900px) {
+	.ms-sheet-main { flex-direction: column; }
+	.ms-charts { width: auto; max-height: 58%; border-left: none; border-top: 1px solid var(--background-modifier-border); }
+}
