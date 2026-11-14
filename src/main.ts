@@ -68,6 +68,10 @@ export default class BitsAndBobs extends Plugin {
 		for (const t of MATH_TOOLS) this.addMathCommand(t);
 		if (st.symbolSearch) this.registerEditorSuggest(new MathSuggest(this.app));
 		this.registerDomEvent(window, "keydown", (e) => this.onKey(e));
+		// ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y on Windows) whenever a board, deck or spreadsheet is the active tab
+		this.registerDomEvent(window, "keydown", (e) => this.onUndoKey(e), { capture: true });
+		this.addCommand({ id: "undo", name: "Undo on board, slide or spreadsheet", icon: "undo-2", checkCallback: (check) => this.undoRedo(false, check) });
+		this.addCommand({ id: "redo", name: "Redo on board, slide or spreadsheet", icon: "redo-2", checkCallback: (check) => this.undoRedo(true, check) });
 
 		this.app.workspace.onLayoutReady(() => {
 			this.setupStatusBar();
@@ -78,6 +82,31 @@ export default class BitsAndBobs extends Plugin {
 		});
 
 		this.addSettingTab(new BitsSettingTab(this.app, this));
+	}
+
+	private onUndoKey(e: KeyboardEvent) {
+		const mod = Platform.isMacOS || Platform.isIosApp ? e.metaKey : e.ctrlKey;
+		if (!mod || e.altKey) return;
+		const k = e.key.toLowerCase();
+		const redo = (k === "z" && e.shiftKey) || (k === "y" && !e.shiftKey && !Platform.isMacOS);
+		if (k !== "z" && !redo) return;
+		// typing in a text box or cell keeps the normal text undo
+		const a = document.activeElement;
+		if (a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement || (a instanceof HTMLElement && a.isContentEditable)) return;
+		if (a instanceof HTMLElement && a.closest(".modal-container")) return;
+		if (this.undoRedo(redo, false)) { e.preventDefault(); e.stopPropagation(); }
+	}
+
+	/** Undo or redo in the active board, slide deck or spreadsheet. Returns false if none is active. */
+	private undoRedo(redo: boolean, check: boolean): boolean {
+		const ws = this.app.workspace;
+		const board = ws.getActiveViewOfType(BoardView)?.board ?? ws.getActiveViewOfType(SlidesView)?.board;
+		const sheet = ws.getActiveViewOfType(SheetView);
+		if (!board && !sheet) return false;
+		if (check) return true;
+		if (board) redo ? board.redo() : board.undo();
+		else if (sheet) redo ? sheet.redo() : sheet.undo();
+		return true;
 	}
 
 	/** Maths shortcuts in notes and text boxes (boards and spreadsheets handle their own first). */

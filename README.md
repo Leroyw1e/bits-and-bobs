@@ -9,8 +9,8 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Stylus support**: pressure-sensitive lines, palm rejection (once the pen touches the board, fingers pan instead of drawing), and pinch to zoom.
 - **Maths boxes** that render LaTeX, such as `$$\frac{-b \pm \sqrt{b^2-4ac}}{2a}$$`.
 - **Graphs**: type `x^2 - 3` or `2sin(x)` and the curve is drawn on the board.
-- **Images** from your device, camera, clipboard, the vault, or by drag and drop. Images are saved in your attachments folder.
-- Grid, dots, lined or plain backgrounds, plus undo and redo.
+- **Images** from your device, camera, clipboard, the vault, or by drag and drop. Images are saved in your attachments folder. iPhone HEIC photos are converted to JPEG automatically (on iPad, iPhone and macOS).
+- Grid, dots, lined or plain backgrounds, plus undo and redo (⌘Z / ⇧⌘Z, or Ctrl+Z / Ctrl+Y).
 
 ### Slides (`.mslides`)
 - Presentations where every slide works like a drawing board.

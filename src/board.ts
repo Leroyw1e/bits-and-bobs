@@ -252,6 +252,7 @@ export class Board extends Component {
 			d.style.cssText = `left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px`;
 			const img = d.createEl("img", { attr: { draggable: "false", alt: "" } });
 			img.src = this.resolveImage(el.src);
+			if (isHeic(el.src.split(".").pop() ?? "", "") && !this.opts.readOnly) img.onerror = () => this.convertHeicImage(el);
 			node = d;
 		} else {
 			node = this.graphNode(el);
@@ -872,30 +873,78 @@ export class Board extends Component {
 		const m = new Menu();
 		m.addItem((i) => i.setTitle(Platform.isMobile ? "Photos or camera" : "From this computer").setIcon("upload").onClick(() => this.pickFromDevice()));
 		m.addItem((i) => i.setTitle("From the vault").setIcon("vault").onClick(() => {
-			new ImagePicker(this.plugin.app, (f) => this.placeImage(f.path, this.plugin.app.vault.getResourcePath(f))).open();
+			new ImagePicker(this.plugin.app, (f) => this.placeVaultImage(f)).open();
 		}));
 		const btn = this.toolButtons.get("image");
 		if (btn) { const r = btn.getBoundingClientRect(); m.showAtPosition({ x: r.left, y: r.bottom }); }
 		else { const r = this.viewport.getBoundingClientRect(); m.showAtPosition({ x: r.left + 40, y: r.top + 40 }); }
 	}
 	private pickFromDevice() {
-		const input = createEl("input", { attr: { type: "file", accept: "image/*", multiple: "" } });
+		const input = createEl("input", { attr: { type: "file", accept: "image/*,.heic,.heif", multiple: "" } });
 		input.onchange = async () => { for (const f of Array.from(input.files ?? [])) await this.importFile(f); };
 		input.click();
 	}
 	async importFile(f: File, at?: { x: number; y: number }) {
-		if (!f.type.startsWith("image/")) return;
-		const ext = (f.name.split(".").pop() || f.type.split("/")[1] || "png").toLowerCase();
+		let ext = (f.name.split(".").pop() || f.type.split("/")[1] || "png").toLowerCase();
+		const heic = isHeic(ext, f.type);
+		if (!f.type.startsWith("image/") && !heic) return;
 		const base = (f.name && f.name !== "image.png" ? f.name.replace(/\.[^.]+$/, "") : "Pasted image " + new Date().toISOString().replace(/\D/g, "").slice(0, 14));
 		try {
+			let data = await f.arrayBuffer();
+			if (heic) {
+				// iPhone photos: most apps (and Obsidian on Mac/Windows) can't show HEIC, so store a JPEG
+				const jpg = await heicToJpeg(data, diskPathOfUpload(f));
+				if (!jpg) { new Notice("This HEIC photo can't be converted on this device. Save it as a JPEG first."); return; }
+				data = jpg; ext = "jpg";
+			}
 			const path = await this.plugin.app.fileManager.getAvailablePathForAttachment(`${base}.${ext}`, this.opts.sourcePath);
-			const file = await this.plugin.app.vault.createBinary(path, await f.arrayBuffer());
+			const file = await this.plugin.app.vault.createBinary(path, data);
 			await this.placeImage(file.path, this.plugin.app.vault.getResourcePath(file), at);
 		} catch (err) {
 			console.error(err);
 			new Notice("Couldn't add that image.");
 		}
 	}
+	/** Place an image that's already in the vault (HEIC photos get a JPEG copy first). */
+	private async placeVaultImage(f: TFile, at?: { x: number; y: number }) {
+		const vault = this.plugin.app.vault;
+		if (!isHeic(f.extension, "")) return this.placeImage(f.path, vault.getResourcePath(f), at);
+		const jpg = await heicToJpeg(await vault.readBinary(f), diskPathOf(this.plugin.app, f));
+		if (!jpg) { new Notice("This HEIC photo can't be converted on this device. Save it as a JPEG first."); return; }
+		const base = f.path.replace(/\.[^.]+$/, "");
+		let path = `${base}.jpg`;
+		for (let i = 1; vault.getAbstractFileByPath(path); i++) path = `${base} ${i}.jpg`;
+		const file = await vault.createBinary(path, jpg);
+		return this.placeImage(file.path, vault.getResourcePath(file), at);
+	}
+
+	/** Swap a HEIC image already on the board for a JPEG copy (the original stays in the vault). */
+	private converting = new Set<string>();
+	private async convertHeicImage(el: ImageEl) {
+		if (this.converting.has(el.id)) return;
+		this.converting.add(el.id);
+		const vault = this.plugin.app.vault;
+		const src = vault.getAbstractFileByPath(el.src);
+		if (!(src instanceof TFile)) return;
+		const jpg = await heicToJpeg(await vault.readBinary(src), diskPathOf(this.plugin.app, src));
+		if (!jpg) { new Notice(`${src.name} is a HEIC photo, which can't be shown on this device.`); return; }
+		const base = src.path.replace(/\.[^.]+$/, "");
+		let path = `${base}.jpg`;
+		for (let i = 1; vault.getAbstractFileByPath(path); i++) path = `${base} ${i}.jpg`;
+		const file = await vault.createBinary(path, jpg);
+		el.src = file.path;
+		// the box was a 400 × 300 placeholder; match the photo's real shape
+		await new Promise<void>((res) => {
+			const img = new Image();
+			img.onload = () => { if (img.naturalWidth) el.h = el.w * (img.naturalHeight / img.naturalWidth); res(); };
+			img.onerror = () => res();
+			img.src = vault.getResourcePath(file);
+		});
+		this.refreshNode(el);
+		this.drawSelection();
+		this.changed();
+	}
+
 	private placeImage(src: string, url: string, at?: { x: number; y: number }) {
 		return new Promise<void>((resolve) => {
 			const img = new Image();
@@ -929,7 +978,7 @@ export class Board extends Component {
 		// dragged from Obsidian's file list
 		const dm = (this.plugin.app as any).dragManager?.draggable;
 		const f: TFile | undefined = dm?.file ?? dm?.files?.[0];
-		if (f instanceof TFile && /^(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(f.extension)) this.placeImage(f.path, this.plugin.app.vault.getResourcePath(f), at);
+		if (f instanceof TFile && /^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(f.extension)) this.placeVaultImage(f, at);
 	}
 
 	// ---------- toolbar ----------
@@ -1077,7 +1126,7 @@ export class Board extends Component {
 
 class ImagePicker extends FuzzySuggestModal<TFile> {
 	constructor(app: App, private pick: (f: TFile) => void) { super(app); this.setPlaceholder("Pick an image from your vault"); }
-	getItems() { return this.app.vault.getFiles().filter((f) => /^(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(f.extension)); }
+	getItems() { return this.app.vault.getFiles().filter((f) => /^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(f.extension)); }
 	getItemText(f: TFile) { return f.path; }
 	onChooseItem(f: TFile) { this.pick(f); }
 }
@@ -1118,6 +1167,81 @@ class GraphModal extends Modal {
 		setTimeout(() => ta.focus(), 50);
 	}
 	onClose() { if (!this.saved) this.done(null); this.contentEl.empty(); }
+}
+
+// ---------- HEIC (iPhone photo) support ----------
+export const isHeic = (ext: string, type: string) => /^hei[cf]$/i.test(ext) || /image\/hei[cf]/i.test(type);
+
+/** Draw an image (URL) onto a canvas, trimming fully transparent edges, and return a JPEG. */
+async function toJpeg(url: string, maxSide: number, trim: boolean): Promise<ArrayBuffer | null> {
+	const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+	let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+	if (!sw || !sh) return null;
+	if (trim) {
+		const t = createEl("canvas"); t.width = sw; t.height = sh;
+		const tc = t.getContext("2d")!; tc.drawImage(img, 0, 0);
+		const a = tc.getImageData(0, 0, sw, sh).data;
+		let x1 = sw, y1 = sh, x2 = -1, y2 = -1;
+		for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) if (a[(y * sw + x) * 4 + 3] > 8) { if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y; }
+		if (x2 < 0) return null;
+		sx = x1; sy = y1; sw = x2 - x1 + 1; sh = y2 - y1 + 1;
+	}
+	const s = Math.min(1, maxSide / Math.max(sw, sh));
+	const c = createEl("canvas");
+	c.width = Math.round(sw * s); c.height = Math.round(sh * s);
+	const ctx = c.getContext("2d")!;
+	ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+	ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+	const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/jpeg", 0.9));
+	return blob ? blob.arrayBuffer() : null;
+}
+
+/** Convert a HEIC photo to JPEG. Uses the browser's own decoder first (works on iPad and iPhone),
+ *  then, on macOS desktop, the system's Quick Look decoder (needs the file's path on disk).
+ *  Returns null if neither can read it. */
+export async function heicToJpeg(buf: ArrayBuffer, diskPath?: string, maxSide = 2560): Promise<ArrayBuffer | null> {
+	const url = URL.createObjectURL(new Blob([buf], { type: "image/heic" }));
+	try { const out = await toJpeg(url, maxSide, false); if (out) return out; }
+	catch { /* this browser can't decode HEIC */ }
+	finally { URL.revokeObjectURL(url); }
+	if (Platform.isDesktopApp && Platform.isMacOS && diskPath) {
+		try {
+			// Quick Look returns exactly the size asked for, so ask for the photo's real shape
+			const dim = heicSize(buf);
+			const ratio = dim ? dim.w / dim.h : 4 / 3;
+			const size = ratio >= 1 ? { width: maxSide, height: Math.round(maxSide / ratio) } : { width: Math.round(maxSide * ratio), height: maxSide };
+			const ni = (window as any).require?.("electron")?.nativeImage;
+			const thumb = await ni?.createThumbnailFromPath?.(diskPath, size);
+			if (thumb && !thumb.isEmpty()) return await toJpeg(thumb.toDataURL(), maxSide, false);
+		} catch { /* not available */ }
+	}
+	return null;
+}
+
+/** Read a HEIC file's displayed width and height (largest "ispe" box, turned by any "irot" rotation). */
+export function heicSize(buf: ArrayBuffer): { w: number; h: number } | null {
+	const b = new Uint8Array(buf), v = new DataView(buf);
+	const limit = Math.min(b.length - 16, 1 << 20); // the boxes we need live near the start
+	let best: { w: number; h: number } | null = null, rot = 0;
+	for (let i = 4; i < limit; i++) {
+		if (b[i] === 0x69 && b[i + 1] === 0x73 && b[i + 2] === 0x70 && b[i + 3] === 0x65) { // "ispe"
+			const w = v.getUint32(i + 8), h = v.getUint32(i + 12);
+			if (w && h && w < 100000 && h < 100000 && (!best || w * h > best.w * best.h)) best = { w, h };
+		} else if (b[i] === 0x69 && b[i + 1] === 0x72 && b[i + 2] === 0x6f && b[i + 3] === 0x74) { // "irot"
+			rot = b[i + 4] & 3;
+		}
+	}
+	if (!best) return null;
+	return rot % 2 ? { w: best.h, h: best.w } : best;
+}
+
+/** Where a vault file lives on disk (desktop only). */
+function diskPathOf(app: App, f: TFile): string | undefined {
+	try { return (app.vault.adapter as any).getFullPath?.(f.path); } catch { return undefined; }
+}
+/** Where a picked/dropped file lives on disk (desktop only). */
+function diskPathOfUpload(f: File): string | undefined {
+	try { return (window as any).require?.("electron")?.webUtils?.getPathForFile?.(f) || (f as any).path || undefined; } catch { return undefined; }
 }
 
 export function parseBoard(data: string): BoardDoc {

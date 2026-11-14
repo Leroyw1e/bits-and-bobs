@@ -199,6 +199,8 @@ export class SheetView extends FileView {
 		if (this.undoStack.length > 100) this.undoStack.shift();
 		this.redoStack = [];
 	}
+	undo() { this.commitEdit(); this.restore(this.undoStack, this.redoStack); }
+	redo() { this.commitEdit(); this.restore(this.redoStack, this.undoStack); }
 	private restore(from: typeof this.undoStack, to: typeof this.undoStack) {
 		const s = from.pop(); if (!s || !this.book) return;
 		to.push({ sheet: s.sheet, raw: [...this.book.sheets[s.sheet].raw] });
