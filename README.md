@@ -11,6 +11,7 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Snap to shape**: draw a line, circle, rectangle or triangle, then hold the pen still at the end and it turns into a clean shape. A snapped line can be aimed before you lift, and a highlighter stroke snaps to a straight underline.
 - **Lasso**: circle things with the pen to select them, then drag them together.
 - **Graphs**: type `x^2 - 3` or `2sin(x)` and the curve is drawn. You can also add shaded areas (`y > x^2`), vertical lines (`x = 3`) and named points (`(1, 2) A`). The **trace** tool reads values off a curve as you drag across it.
+- **Charts you type the numbers into**: press the chart button, say how many bars there are, type a name and a number for each, and choose the lowest and highest number up the side. Bar, line and pie charts, up to four sets of numbers, with side and bottom labels. Double-click a chart to change it. The command **Insert a chart into this note** puts the same kind of chart into a note as a picture.
 - **Images** from your device, camera, clipboard, the vault, or by drag and drop. Images are saved in your attachments folder. iPhone HEIC photos are converted to JPEG automatically (on iPad, iPhone and macOS).
 - Grid, dots, lined or plain backgrounds, plus undo and redo (⌘Z / ⇧⌘Z, or Ctrl+Z / Ctrl+Y).
 

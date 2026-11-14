@@ -30,6 +30,7 @@ export interface BitsSettings {
 	tbImages: boolean;
 	tbLasso: boolean;
 	tbTrace: boolean;
+	tbChart: boolean;
 	shapeSnap: boolean;
 	snapHoldMs: number;
 	// slides
@@ -54,7 +55,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	boards: true, slides: true, sheets: true, embeds: true, ribbon: true, symbolSearch: true,
 	mathShortcuts: true, statusBar: true, mobileToolbar: true, mobileToolbarAdded: false,
 	fingerDraws: true, pencilOnlyAfterPen: true, pressure: true, penSize: 4, defaultBg: "grid", canvasDraw: true,
-	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, shapeSnap: true, snapHoldMs: 600,
+	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, symbolsSidebar: true,
 	homeButtons: true, newFileFolder: "",
@@ -113,6 +114,7 @@ export class BitsSettingTab extends PluginSettingTab {
 		toggle("tbMaths", "Maths tools", "Show the maths box and symbol buttons.");
 		toggle("tbGraph", "Graph tool", "Show the graph button.");
 		toggle("tbTrace", "Graph trace tool", "Show the button for reading values off a graph.");
+		toggle("tbChart", "Chart tool", "Show the button for making bar, line and pie charts from numbers you type.");
 		toggle("tbLasso", "Lasso tool", "Show the lasso button for circling things to select them.");
 		toggle("tbImages", "Image tool", "Show the add image button.");
 		containerEl.createDiv({ cls: "setting-item-description ms-note", text: "Toolbar changes apply to boards you open next." });

@@ -8,6 +8,8 @@ import { SuperTyper } from "./superscript";
 import { solveLine } from "./autosolve";
 import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
+import { openChartDialog, specToData } from "./chartdialog";
+import { renderChart, svgToPng } from "./charts";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
 const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt", "subscript", "greek"];
@@ -77,6 +79,25 @@ export default class BitsAndBobs extends Plugin {
 		this.registerDomEvent(window, "keydown", (e) => this.onKey(e));
 		// ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y on Windows) whenever a board, deck or spreadsheet is the active tab
 		this.registerDomEvent(window, "keydown", (e) => this.onUndoKey(e), { capture: true });
+		// a chart you type the numbers into, put into a note as a picture
+		this.addCommand({
+			id: "insert-chart", name: "Insert a chart into this note", icon: "bar-chart-3",
+			editorCallback: (editor, ctx) => {
+				openChartDialog(this.app, null, async (spec) => {
+					try {
+						const W = 760, H = 500;
+						const svg = renderChart({ type: spec.kind, title: spec.title }, specToData(spec), { fg: "#1e1e1e", muted: "#666666", grid: "#e3e3e3", bg: "#ffffff" }, W, H, { ymin: spec.ymin, ymax: spec.ymax, xLabel: spec.xLabel, yLabel: spec.yLabel });
+						const name = (spec.title || "Chart").replace(/[\\/:*?"<>|#^[\]]/g, "").trim() || "Chart";
+						const path = await this.app.fileManager.getAvailablePathForAttachment(`${name}.png`, ctx.file?.path ?? "");
+						const file = await this.app.vault.createBinary(path, await svgToPng(svg, W, H));
+						editor.replaceSelection(`![[${file.path}|480]]\n`);
+					} catch (e) {
+						console.error(e);
+						new Notice("Couldn't make that chart.");
+					}
+				});
+			},
+		});
 		// the symbols menu lives in the left sidebar
 		this.registerView(VIEW_SYMBOLS, (leaf) => new SymbolsView(leaf, this));
 		this.addCommand({ id: "open-symbols", name: "Open the symbols menu", icon: "pi", callback: () => this.openSymbols(0) });

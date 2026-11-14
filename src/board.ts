@@ -3,6 +3,8 @@ import { getStroke } from "perfect-freehand";
 import type BitsAndBobs from "./main";
 import { MathPalette, insertInField, matchTool, MATH_GROUPS } from "./math";
 import { recognizeShape, Pt2 } from "./shapes";
+import { ChartSpec, openChartDialog, specToData, themeFromCss } from "./chartdialog";
+import { renderChart } from "./charts";
 import { parseGraphLine, GraphItem } from "./graphs";
 
 // ---------- data ----------
@@ -12,7 +14,8 @@ export interface ShapeEl { id: string; type: "shape"; kind: "rect" | "ellipse" |
 export interface TextEl { id: string; type: "text"; x: number; y: number; w: number; text: string; color: string; fs: number; align?: "left" | "center" | "right" }
 export interface ImageEl { id: string; type: "image"; x: number; y: number; w: number; h: number; src: string }
 export interface GraphEl { id: string; type: "graph"; x: number; y: number; w: number; h: number; fns: string[]; xmin: number; xmax: number; ymin: number; ymax: number }
-export type El = StrokeEl | ShapeEl | TextEl | ImageEl | GraphEl;
+export type ChartEl = { id: string; type: "chart"; x: number; y: number; w: number; h: number } & ChartSpec;
+export type El = StrokeEl | ShapeEl | TextEl | ImageEl | GraphEl | ChartEl;
 export type Bg = "plain" | "grid" | "dots" | "lines";
 export interface BoardDoc { elements: El[]; bg?: Bg }
 
@@ -271,7 +274,7 @@ export class Board extends Component {
 			if (isHeic(el.src.split(".").pop() ?? "", "") && !this.opts.readOnly) img.onerror = () => this.convertHeicImage(el);
 			node = d;
 		} else {
-			node = this.graphNode(el);
+			node = el.type === "chart" ? this.chartNode(el) : this.graphNode(el);
 		}
 		(node as HTMLElement).dataset.id = el.id;
 		this.nodes.set(el.id, node);
@@ -435,6 +438,35 @@ export class Board extends Component {
 		const left = sx(gx) > g.w * 0.6;
 		read.style.cssText = `transform:scale(${1 / this.z});transform-origin:${left ? "top right" : "top left"};${left ? `right:${g.w - sx(gx) + 8 / this.z}px` : `left:${sx(gx) + 8 / this.z}px`};top:${8 / this.z}px`;
 		this.traceLayer = layer;
+	}
+
+	// ---------- charts you type the numbers into ----------
+	private chartNode(el: ChartEl): HTMLElement {
+		const d = createDiv("ms-chartel");
+		d.style.cssText = `left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px`;
+		d.appendChild(renderChart({ type: el.kind, title: el.title }, specToData(el), themeFromCss(this.root), el.w, el.h, { ymin: el.ymin, ymax: el.ymax, xLabel: el.xLabel, yLabel: el.yLabel, transparent: true }));
+		return d;
+	}
+
+	newChart() {
+		openChartDialog(this.plugin.app, null, (spec) => {
+			const p = this.freeSpot(480, 340);
+			const el: ChartEl = { id: uid(), type: "chart", x: p.x, y: p.y, w: 480, h: 340, ...spec };
+			this.add(el);
+			this.setTool("select");
+			this.selection = new Set([el.id]);
+			this.drawSelection();
+		});
+	}
+
+	editChart(el: ChartEl) {
+		openChartDialog(this.plugin.app, el, (spec) => {
+			this.snapshot();
+			Object.assign(el, spec);
+			this.refreshNode(el);
+			this.drawSelection();
+			this.changed();
+		});
 	}
 
 	private refreshNode(el: El) {
@@ -939,6 +971,7 @@ export class Board extends Component {
 		const hit = this.topHit(x, y);
 		if (hit?.type === "text") this.editText(hit);
 		else if (hit?.type === "graph") this.editGraph(hit);
+		else if (hit?.type === "chart") this.editChart(hit);
 		else if (!hit && this.tool === "select") this.newText(x, y, "");
 	}
 
@@ -1254,6 +1287,7 @@ export class Board extends Component {
 			btn(g, "math", "sigma", "Maths box (M)", () => this.newMath("$$\n¦\n$$"));
 			btn(g, "palette", "pi", "Maths symbols", () => this.openPalette());
 		}
+		if (st.tbChart) btn(g, "chart", "bar-chart-3", "Make a bar, line or pie chart from numbers you type", () => this.newChart());
 		if (st.tbGraph) {
 			btn(g, "graph", "line-chart", "Graph a function (G)", () => this.newGraph());
 			if (st.tbTrace) btn(g, "trace", "crosshair", "Read values off a graph: drag over it (C)", () => this.setTool("trace"));

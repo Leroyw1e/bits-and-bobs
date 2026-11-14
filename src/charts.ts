@@ -71,10 +71,33 @@ function niceTicks(min: number, max: number, target = 5) {
 const fmt = (n: number) => (Math.abs(n) >= 1e6 || (Math.abs(n) < 0.001 && n !== 0) ? n.toExponential(1) : String(+n.toPrecision(6)));
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
+/** Ticks for a side scale the user fixed: the lowest and highest numbers are always shown, with round numbers between. */
+function fixedTicks(lo: number, hi: number) {
+	const raw = (hi - lo) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+	const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? mag * 10;
+	const ticks: number[] = [lo];
+	for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+		const t = Math.round(v / step) * step;
+		if (Math.abs(t - lo) > step * 0.2 && Math.abs(t - hi) > step * 0.2) ticks.push(t);
+	}
+	ticks.push(hi);
+	return { lo, hi, ticks };
+}
+
+export interface ChartOpts {
+	/** the lowest and highest number up the side (leave out to fit the numbers) */
+	ymin?: number | null;
+	ymax?: number | null;
+	xLabel?: string;
+	yLabel?: string;
+	/** don't paint a background, so a board or slide shows through */
+	transparent?: boolean;
+}
+
 /** Draws a chart into a new SVG (colours are written in directly, so it can also be saved as an image). */
-export function renderChart(def: ChartDef, data: ChartData, theme: ChartTheme, W = 520, H = 340): SVGSVGElement {
+export function renderChart(def: { type: ChartDef["type"]; title: string }, data: ChartData, theme: ChartTheme, W = 520, H = 340, opts: ChartOpts = {}): SVGSVGElement {
 	const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, xmlns: SVGNS });
-	svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: theme.bg }));
+	if (!opts.transparent) svg.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: theme.bg }));
 	const font = "-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif";
 	const text = (x: number, y: number, s: string, o: { anchor?: string; size?: number; weight?: string; fill?: string; rotate?: number } = {}) => {
 		const t = el("text", { x, y, "text-anchor": o.anchor ?? "start", "font-size": o.size ?? 12, "font-weight": o.weight ?? "400", fill: o.fill ?? theme.fg, "font-family": font }, s);
@@ -84,7 +107,7 @@ export function renderChart(def: ChartDef, data: ChartData, theme: ChartTheme, W
 	if (def.title) text(W / 2, 24, clip(def.title, 60), { anchor: "middle", size: 15, weight: "600" });
 	const top = def.title ? 40 : 14;
 	const hasData = data.series.length > 0 && data.series.some((s) => s.values.some((v) => !isNaN(v)));
-	if (!hasData) { text(W / 2, H / 2, "No numbers to chart in this range", { anchor: "middle", fill: theme.muted }); return svg; }
+	if (!hasData) { text(W / 2, H / 2, "No numbers to chart yet", { anchor: "middle", fill: theme.muted }); return svg; }
 
 	// ---------- pie ----------
 	if (def.type === "pie") {
@@ -116,13 +139,20 @@ export function renderChart(def: ChartDef, data: ChartData, theme: ChartTheme, W
 	// ---------- bar / line / scatter ----------
 	const multi = data.series.length > 1;
 	const legendH = multi ? 22 : 0;
-	const L = 52, R = 16, B = (def.type === "scatter" ? 34 : data.cats.length > 8 ? 56 : 38) + legendH, T = top;
+	const L = 52 + (opts.yLabel ? 18 : 0), R = 16, B = (def.type === "scatter" ? 34 : data.cats.length > 8 ? 56 : 38) + legendH + (opts.xLabel ? 18 : 0), T = top;
 	const pw = W - L - R, ph = H - T - B;
 	const all = data.series.flatMap((s) => s.values).filter((v) => !isNaN(v));
 	let ymin = Math.min(...all), ymax = Math.max(...all);
 	if (def.type === "bar") { ymin = Math.min(0, ymin); ymax = Math.max(0, ymax); }
-	const yt = niceTicks(ymin, ymax);
-	const sy = (v: number) => T + ph - ((v - yt.lo) / (yt.hi - yt.lo)) * ph;
+	// the lowest and highest numbers up the side can be fixed by the user
+	const fixed = (opts.ymin ?? null) !== null || (opts.ymax ?? null) !== null;
+	if (opts.ymin != null) ymin = opts.ymin;
+	if (opts.ymax != null) ymax = opts.ymax;
+	if (ymax <= ymin) ymax = ymin + 1;
+	const yt = fixed ? fixedTicks(ymin, ymax) : niceTicks(ymin, ymax);
+	const sy = (v: number) => T + ph - ((Math.max(yt.lo, Math.min(yt.hi, v)) - yt.lo) / (yt.hi - yt.lo)) * ph;
+	if (opts.yLabel) text(14, T + ph / 2, clip(opts.yLabel, 30), { anchor: "middle", size: 12, fill: theme.muted, rotate: -90 });
+	if (opts.xLabel) text(L + pw / 2, H - legendH - 6, clip(opts.xLabel, 40), { anchor: "middle", size: 12, fill: theme.muted });
 	for (const t of yt.ticks) {
 		svg.appendChild(el("line", { x1: L, x2: L + pw, y1: sy(t), y2: sy(t), stroke: theme.grid, "stroke-width": 1 }));
 		text(L - 6, sy(t) + 4, fmt(t), { anchor: "end", size: 11, fill: theme.muted });
@@ -175,4 +205,16 @@ export function renderChart(def: ChartDef, data: ChartData, theme: ChartTheme, W
 		});
 	}
 	return svg;
+}
+
+/** Turns a chart drawing into a PNG picture (for putting in a note). */
+export async function svgToPng(svg: SVGSVGElement, W: number, H: number, scale = 2): Promise<ArrayBuffer> {
+	const xml = new XMLSerializer().serializeToString(svg);
+	const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml); });
+	const c = createEl("canvas");
+	c.width = W * scale; c.height = H * scale;
+	c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+	const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
+	if (!blob) throw new Error("couldn't make the picture");
+	return blob.arrayBuffer();
 }
