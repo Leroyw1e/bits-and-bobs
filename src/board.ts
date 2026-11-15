@@ -2,7 +2,7 @@ import { Component, MarkdownRenderer, Menu, Modal, Notice, Platform, Setting, TF
 import { getStroke } from "perfect-freehand";
 import type BitsAndBobs from "./main";
 import { insertInField, matchTool, MATH_GROUPS } from "./math";
-import { electron, internal } from "./internal";
+import { electron, internal, nodeModule } from "./internal";
 import { recognizeShape, Pt2 } from "./shapes";
 import { ChartSpec, openChartDialog, specToData, themeFromCss } from "./chartdialog";
 import { renderChart } from "./charts";
@@ -1835,8 +1835,15 @@ export async function heicToJpeg(buf: ArrayBuffer, diskPath?: string, maxSide = 
 	try { const out = await toJpeg(url, maxSide, false); if (out) return out; }
 	catch { /* this browser can't decode HEIC */ }
 	finally { URL.revokeObjectURL(url); }
-	if (Platform.isDesktopApp && Platform.isMacOS && diskPath) {
-		try {
+	if (Platform.isDesktopApp && Platform.isMacOS) {
+		// Quick Look needs a file on disk; a photo dragged from the Photos app or pasted may not have one
+		const fs = nodeModule<{ writeFileSync(p: string, d: Uint8Array): void; unlinkSync(p: string): void }>("fs");
+		const os = nodeModule<{ tmpdir(): string }>("os");
+		let temp: string | undefined;
+		if (!diskPath && fs && os) {
+			try { temp = `${os.tmpdir()}/bits-and-bobs-${Date.now()}.heic`; fs.writeFileSync(temp, new Uint8Array(buf)); diskPath = temp; } catch { temp = undefined; }
+		}
+		if (diskPath) try {
 			// Quick Look returns exactly the size asked for, so ask for the photo's real shape
 			const dim = heicSize(buf);
 			const ratio = dim ? dim.w / dim.h : 4 / 3;
@@ -1844,7 +1851,9 @@ export async function heicToJpeg(buf: ArrayBuffer, diskPath?: string, maxSide = 
 			const ni = electron()?.nativeImage;
 			const thumb = await ni?.createThumbnailFromPath?.(diskPath, size);
 			if (thumb && !thumb.isEmpty()) return await toJpeg(thumb.toDataURL(), maxSide, false);
-		} catch { /* not available */ }
+		} catch { /* not available */ } finally {
+			if (temp) try { fs?.unlinkSync(temp); } catch { /* already gone */ }
+		}
 	}
 	return null;
 }
@@ -1871,7 +1880,7 @@ function diskPathOf(app: App, f: TFile): string | undefined {
 	try { return (app.vault.adapter as unknown as { getFullPath?(p: string): string }).getFullPath?.(f.path); } catch { return undefined; }
 }
 /** Where a picked/dropped file lives on disk (desktop only). */
-function diskPathOfUpload(f: File): string | undefined {
+export function diskPathOfUpload(f: File): string | undefined {
 	try { return electron()?.webUtils?.getPathForFile?.(f) || (f as File & { path?: string }).path || undefined; } catch { return undefined; }
 }
 

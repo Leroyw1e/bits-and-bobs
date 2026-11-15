@@ -16,7 +16,7 @@ import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
 import { openChartDialog, specToData } from "./chartdialog";
 import { renderChart, svgToPng } from "./charts";
-import { PdfPicker, dropFolder, noPdfs, noteFromDroppedPdf, noteFromPdf } from "./pdfnote";
+import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
 const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt", "subscript", "greek"];
@@ -411,21 +411,37 @@ export default class BitsAndBobs extends Plugin {
 
 	// ---------- PDFs into notes ----------
 	private onFileListDrop(e: DragEvent) {
-		if (!this.settings.pdfNotes) return;
+		const st = this.settings;
+		if (!st.pdfNotes && !st.photoNotes) return;
 		const target = e.target as HTMLElement | null;
 		if (!target?.closest?.(".nav-files-container")) return;
 		const files = Array.from(e.dataTransfer?.files ?? []);
-		const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
-		if (!pdfs.length || pdfs.length !== files.length) return; // anything else is imported by Obsidian as usual
+		const isPdf = (f: File) => /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+		const pdfs = st.pdfNotes ? files.filter(isPdf) : [];
+		const photos = st.photoNotes ? files.filter((f) => !isPdf(f) && isPhoto(f)) : [];
+		if (!files.length || pdfs.length + photos.length !== files.length) return; // anything else is imported by Obsidian as usual
 		e.preventDefault(); e.stopPropagation();
 		const folder = dropFolder(this.app, target);
 		void (async () => {
+			if (photos.length) {
+				const busy = new Notice(photos.length > 1 ? `Making a note from ${photos.length} photos…` : `Making a note from ${photos[0].name}…`, 0);
+				try {
+					const note = await noteFromDroppedPhotos(this.app, photos, folder);
+					busy.hide();
+					if (!pdfs.length) await this.app.workspace.getLeaf(false).openFile(note);
+					else new Notice(`Made ${note.basename}.`);
+				} catch (err) {
+					busy.hide();
+					console.error(err);
+					new Notice("Couldn't make a note from those photos.");
+				}
+			}
 			for (const f of pdfs) {
 				const busy = new Notice(`Making a note from ${f.name}…`, 0);
 				try {
 					const note = await noteFromDroppedPdf(this.app, f, folder, this.settings.pdfNoteStyle);
 					busy.hide();
-					if (pdfs.length === 1) await this.app.workspace.getLeaf(false).openFile(note);
+					if (pdfs.length === 1 && !photos.length) await this.app.workspace.getLeaf(false).openFile(note);
 					else new Notice(`Made ${note.basename}.`);
 				} catch (err) {
 					busy.hide();

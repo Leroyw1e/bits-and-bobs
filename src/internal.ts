@@ -33,3 +33,8 @@ interface ElectronLike {
 export function electron(): ElectronLike | undefined {
 	try { return (window as unknown as { require?: (m: string) => ElectronLike }).require?.("electron"); } catch { return undefined; }
 }
+
+/** A Node module on desktop (fs, os); undefined on iPad and iPhone. */
+export function nodeModule<T>(name: string): T | undefined {
+	try { return (window as unknown as { require?: (m: string) => T }).require?.(name); } catch { return undefined; }
+}

@@ -1,4 +1,5 @@
 import { App, FuzzySuggestModal, Notice, TFile, TFolder, loadPdfJs, normalizePath } from "obsidian";
+import { diskPathOfUpload, heicToJpeg, isHeic } from "./board";
 
 /** The small part of pdf.js (bundled with Obsidian) that is used here. */
 interface PdfTextItem { str?: string; hasEOL?: boolean; transform?: number[]; width?: number; height?: number; fontName?: string }
@@ -160,6 +161,37 @@ export async function noteFromDroppedPdf(app: App, file: File, folder: string, s
 	const pdfPath = await app.fileManager.getAvailablePathForAttachment(`${base}.pdf`, noteGuess);
 	const pdf = await app.vault.createBinary(pdfPath, data);
 	return noteFromPdf(app, pdf, folder, style);
+}
+
+export const isPhoto = (f: File) => f.type.startsWith("image/") || isHeic(f.name.split(".").pop() ?? "", f.type);
+
+/**
+ * Photos dropped from outside Obsidian: saves them (iPhone HEIC photos become JPEGs so they show everywhere)
+ * and makes one note with all of them in it, in the folder they were dropped on.
+ */
+export async function noteFromDroppedPhotos(app: App, files: File[], folder: string): Promise<TFile> {
+	const first = files[0].name.replace(/\.[^.]+$/, "") || "Photo";
+	const d = new Date(), pad = (n: number) => String(n).padStart(2, "0");
+	const name = files.length === 1 ? first : `Photos ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+	const notePath = availablePath(app, folder, name, "md");
+	const embeds: string[] = [];
+	let skipped = 0;
+	for (const f of files) {
+		let ext = (f.name.split(".").pop() || f.type.split("/")[1] || "png").toLowerCase();
+		let data = await f.arrayBuffer();
+		if (isHeic(ext, f.type)) {
+			const jpg = await heicToJpeg(data, diskPathOfUpload(f));
+			if (!jpg) { skipped++; continue; }
+			data = jpg; ext = "jpg";
+		}
+		const base = f.name.replace(/\.[^.]+$/, "") || "Photo";
+		const path = await app.fileManager.getAvailablePathForAttachment(`${base}.${ext}`, notePath);
+		const saved = await app.vault.createBinary(path, data);
+		embeds.push(`![[${saved.path}]]`);
+	}
+	if (skipped) new Notice(`${skipped} HEIC photo${skipped > 1 ? "s" : ""} couldn't be converted on this device. Save ${skipped > 1 ? "them" : "it"} as JPEG first.`);
+	if (!embeds.length) throw new Error("no photos could be saved");
+	return app.vault.create(notePath, embeds.join("\n\n") + "\n");
 }
 
 function availablePath(app: App, folder: string, base: string, ext: string): string {
