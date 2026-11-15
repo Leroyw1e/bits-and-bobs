@@ -27,15 +27,15 @@ export function rewriteTyping(line: string, c: string, inMath: boolean): Rewrite
 
 	// 2/4 then a space
 	if (c === " ") {
-		const m = /(?<![\w./\\])(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(line);
-		if (m) return { remove: m[0].length, insert: wrap(`\\frac{${m[1]}}{${m[2]}}`) + " ", swallow: true };
+		const m = /(^|[^\w./\\])(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(line);
+		if (m) return { remove: m[0].length - m[1].length, insert: wrap(`\\frac{${m[2]}}{${m[3]}}`) + " ", swallow: true };
 		return null;
 	}
 
 	// sqrt(16)
 	if (c === ")") {
-		const m = /(?<![A-Za-z\\])sqrt\(([^()]+)$/.exec(line);
-		if (m) return { remove: m[0].length, insert: wrap(`\\sqrt{${m[1]}}`), swallow: true };
+		const m = /(^|[^A-Za-z\\])sqrt\(([^()]+)$/.exec(line);
+		if (m) return { remove: m[0].length - m[1].length, insert: wrap(`\\sqrt{${m[2]}}`), swallow: true };
 		return null;
 	}
 
@@ -64,8 +64,8 @@ export function operatorFor(line: string, c: string): { insert: string; remove: 
 	if (/\]\([^)]*$/.test(line) || /\b[a-z][a-z0-9+.-]*:\/?\/?\S*$/i.test(line)) return null;
 	// a date like 1/2/2025: the first slash became ÷, so put it back
 	if (c === "/") {
-		const d = /(?<![\d.])(\d{1,4})÷(\d{1,2})$/.exec(line);
-		if (d) return { insert: `${d[1]}/${d[2]}/`, remove: d[0].length };
+		const d = /(^|[^\d.])(\d{1,4})÷(\d{1,2})$/.exec(line);
+		if (d) return { insert: `${d[2]}/${d[3]}/`, remove: d[0].length - d[1].length };
 	}
 	const before = line.replace(/\s+$/, "");
 	if (!before) return null;

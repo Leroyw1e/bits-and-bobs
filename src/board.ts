@@ -1,7 +1,8 @@
 import { Component, MarkdownRenderer, Menu, Modal, Notice, Platform, Setting, TFile, FuzzySuggestModal, setIcon, App } from "obsidian";
 import { getStroke } from "perfect-freehand";
 import type BitsAndBobs from "./main";
-import { MathPalette, insertInField, matchTool, MATH_GROUPS } from "./math";
+import { insertInField, matchTool, MATH_GROUPS } from "./math";
+import { electron, internal } from "./internal";
 import { recognizeShape, Pt2 } from "./shapes";
 import { ChartSpec, openChartDialog, specToData, themeFromCss } from "./chartdialog";
 import { renderChart } from "./charts";
@@ -34,7 +35,7 @@ const paint = (c: string) => (c === "ink" ? "var(--ms-ink)" : c === "accent" ? "
 const RULER_H = 64, CM = 37.8;
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}) => {
-	const e = document.createElementNS(SVGNS, tag);
+	const e = activeDocument.createElementNS(SVGNS, tag);
 	for (const k in attrs) e.setAttribute(k, String(attrs[k]));
 	return e;
 };
@@ -305,7 +306,7 @@ export class Board extends Component {
 			node = el.type === "chart" ? this.chartNode(el) : this.graphNode(el);
 		}
 				(node as HTMLElement).dataset.id = el.id;
-		if (this.isHidden(el)) (node as HTMLElement).style.display = "none";
+		if (this.isHidden(el)) (node as HTMLElement).addClass("is-layer-hidden");
 		this.nodes.set(el.id, node);
 		return node;
 	}
@@ -334,7 +335,7 @@ export class Board extends Component {
 			s = g;
 		}
 		s.style.stroke = stroke;
-		if (el.fill && (el.kind === "rect" || el.kind === "ellipse" || el.kind === "poly")) { s.style.fill = stroke; s.style.fillOpacity = "0.15"; }
+		if (el.fill && (el.kind === "rect" || el.kind === "ellipse" || el.kind === "poly")) { s.setCssProps({ fill: stroke }); s.addClass("is-filled"); }
 		svg.appendChild(s);
 		return svg;
 	}
@@ -612,7 +613,7 @@ export class Board extends Component {
 	private applyLayerState() {
 		for (const el of this.doc.elements) {
 			const n = this.nodes.get(el.id) as HTMLElement | undefined;
-			if (n) n.style.display = this.isHidden(el) ? "none" : "";
+			if (n) n.toggleClass("is-layer-hidden", this.isHidden(el));
 			if (!this.live(el)) this.selection.delete(el.id);
 		}
 		this.drawSelection();
@@ -830,7 +831,6 @@ export class Board extends Component {
 			d.style.cssText = `left:${g.x}px;top:${g.y}px;width:${g.size}px;height:${RULER_H}px;transform:rotate(${g.angle}rad);transform-origin:0 0`;
 			parts.svgHost.appendChild(this.rulerSvg(g.size));
 			parts.handle.style.cssText = `left:${g.size}px;top:${RULER_H / 2}px`;
-			parts.close.style.cssText = "left:6px;top:6px";
 			parts.label.setText(`${(g.size / CM).toFixed(1)} cm · ${Math.round(deg) % 180}°`);
 			parts.label.style.cssText = `left:${g.size / 2}px;top:${RULER_H - 22}px`;
 		} else {
@@ -893,12 +893,12 @@ export class Board extends Component {
 	undo() {
 		const s = this.undoStack.pop(); if (!s) return;
 		this.redoStack.push(JSON.stringify(this.doc.elements));
-		this.doc.elements = JSON.parse(s); this.selection.clear(); this.renderAll(); this.changed();
+		this.doc.elements = JSON.parse(s) as El[]; this.selection.clear(); this.renderAll(); this.changed();
 	}
 	redo() {
 		const s = this.redoStack.pop(); if (!s) return;
 		this.undoStack.push(JSON.stringify(this.doc.elements));
-		this.doc.elements = JSON.parse(s); this.selection.clear(); this.renderAll(); this.changed();
+		this.doc.elements = JSON.parse(s) as El[]; this.selection.clear(); this.renderAll(); this.changed();
 	}
 		add(el: El) {
 		this.snapshot();
@@ -925,7 +925,7 @@ export class Board extends Component {
 		this.selection.clear(); this.drawSelection(); this.changed();
 	}
 	duplicateSelection() {
-		const copies = this.doc.elements.filter((e) => this.selection.has(e.id)).map((e) => this.offset(JSON.parse(JSON.stringify(e)), 24, 24));
+		const copies = this.doc.elements.filter((e) => this.selection.has(e.id)).map((e) => this.offset(JSON.parse(JSON.stringify(e)) as El, 24, 24));
 		if (!copies.length) return;
 		this.snapshot();
 		this.selection.clear();
@@ -977,7 +977,7 @@ export class Board extends Component {
 		e.stopPropagation();
 		if (e.pointerType === "pen" && !this.penSeen) { this.penSeen = true; }
 		if (this.editing) this.commitText();
-		if (document.activeElement !== this.root) this.root.focus({ preventScroll: true });
+		if (activeDocument.activeElement !== this.root) this.root.focus({ preventScroll: true });
 		try { this.viewport.setPointerCapture(e.pointerId); } catch { /* ignore */ }
 		this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
 
@@ -1221,7 +1221,7 @@ export class Board extends Component {
 		if (a.kind === "move") {
 			const dx = x - a.sx, dy = y - a.sy;
 			if (!a.moved && Math.hypot(dx, dy) * this.z < 3) return;
-			if (!a.moved) { this.undoStack.push(JSON.stringify(this.doc.elements.map((el) => (a.orig.has(el.id) ? JSON.parse(a.orig.get(el.id)!) : el)))); this.redoStack = []; a.moved = true; }
+			if (!a.moved) { this.undoStack.push(JSON.stringify(this.doc.elements.map((el) => (a.orig.has(el.id) ? (JSON.parse(a.orig.get(el.id)!) as El) : el)))); this.redoStack = []; a.moved = true; }
 			this.doc.elements = this.doc.elements.map((el) => {
 				if (!a.orig.has(el.id)) return el;
 				const moved = this.offset(JSON.parse(a.orig.get(el.id)!) as El, dx, dy);
@@ -1298,7 +1298,7 @@ export class Board extends Component {
 		} else if (a.kind === "resize") {
 			const el = this.doc.elements.find((d) => d.id === a.id);
 			if (el && JSON.stringify(el) !== a.orig) {
-				this.undoStack.push(JSON.stringify(this.doc.elements.map((d) => (d.id === a.id ? JSON.parse(a.orig) : d)))); this.redoStack = [];
+				this.undoStack.push(JSON.stringify(this.doc.elements.map((d) => (d.id === a.id ? (JSON.parse(a.orig) as El) : d)))); this.redoStack = [];
 				if (el.type === "text" || el.type === "graph") this.refreshNode(el);
 				this.drawSelection();
 				this.changed();
@@ -1413,12 +1413,12 @@ export class Board extends Component {
 		if (this.editing) this.commitText();
 		this.selection.clear(); this.drawSelection();
 		const node = this.nodes.get(el.id) as HTMLElement | undefined;
-		if (node) node.style.visibility = "hidden";
+		if (node) node.addClass("is-being-edited");
 		const ta = this.world.createEl("textarea", { cls: "ms-text-edit" });
 		ta.value = el.text;
 		ta.style.cssText = `left:${el.x}px;top:${el.y}px;width:${el.w}px;font-size:${el.fs}px;color:${paint(el.color)};text-align:${el.align ?? "left"}`;
 		ta.placeholder = "Type… use $x^2$ for maths";
-		const grow = () => { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; };
+		const grow = () => { ta.style.removeProperty("height"); ta.setCssProps({ height: ta.scrollHeight + "px" }); };
 		ta.oninput = grow;
 		ta.onkeydown = (e) => {
 			e.stopPropagation();
@@ -1435,7 +1435,7 @@ export class Board extends Component {
 		ta.onpointerdown = (e) => e.stopPropagation();
 		this.editing = { el, ta };
 		this.root.addClass("is-editing");
-		setTimeout(() => {
+		window.setTimeout(() => {
 			ta.focus({ preventScroll: true });
 			const p = caret ?? ta.value.length;
 			ta.setSelectionRange(p, p);
@@ -1487,7 +1487,7 @@ export class Board extends Component {
 		const m = new Menu();
 		m.addItem((i) => i.setTitle(Platform.isMobile ? "Photos or camera" : "From this computer").setIcon("upload").onClick(() => this.pickFromDevice()));
 		m.addItem((i) => i.setTitle("From the vault").setIcon("vault").onClick(() => {
-			new ImagePicker(this.plugin.app, (f) => this.placeVaultImage(f)).open();
+			new ImagePicker(this.plugin.app, (f) => { void this.placeVaultImage(f); }).open();
 		}));
 		const btn = this.toolButtons.get("image");
 		if (btn) { const r = btn.getBoundingClientRect(); m.showAtPosition({ x: r.left, y: r.bottom }); }
@@ -1580,7 +1580,7 @@ export class Board extends Component {
 	private onPaste(e: ClipboardEvent) {
 		if (this.editing) return;
 		const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
-		if (files.length) { e.preventDefault(); files.forEach((f) => this.importFile(f)); return; }
+		if (files.length) { e.preventDefault(); files.forEach((f) => { void this.importFile(f); }); return; }
 		const text = e.clipboardData?.getData("text/plain");
 		if (text) { e.preventDefault(); const c = this.viewCentre(); this.newText(c.x - 150, c.y, text); this.commitText(); }
 	}
@@ -1588,11 +1588,11 @@ export class Board extends Component {
 		e.preventDefault();
 		const at = this.toWorld(e);
 		const files = Array.from(e.dataTransfer?.files ?? []);
-		if (files.length) { files.forEach((f) => this.importFile(f, at)); return; }
+		if (files.length) { files.forEach((f) => { void this.importFile(f, at); }); return; }
 		// dragged from Obsidian's file list
-		const dm = (this.plugin.app as any).dragManager?.draggable;
-		const f: TFile | undefined = dm?.file ?? dm?.files?.[0];
-		if (f instanceof TFile && /^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(f.extension)) this.placeVaultImage(f, at);
+		const dm = internal(this.plugin.app).dragManager?.draggable;
+		const f = dm?.file ?? dm?.files?.[0];
+		if (f instanceof TFile && /^(png|jpe?g|gif|webp|svg|bmp|avif|heic|heif)$/i.test(f.extension)) void this.placeVaultImage(f, at);
 	}
 
 	// ---------- toolbar ----------
@@ -1795,7 +1795,7 @@ class GraphModal extends Modal {
 			this.close();
 		}));
 		check();
-		setTimeout(() => ta.focus(), 50);
+		window.setTimeout(() => ta.focus(), 50);
 	}
 	onClose() { if (!this.saved) this.done(null); this.contentEl.empty(); }
 }
@@ -1841,7 +1841,7 @@ export async function heicToJpeg(buf: ArrayBuffer, diskPath?: string, maxSide = 
 			const dim = heicSize(buf);
 			const ratio = dim ? dim.w / dim.h : 4 / 3;
 			const size = ratio >= 1 ? { width: maxSide, height: Math.round(maxSide / ratio) } : { width: Math.round(maxSide * ratio), height: maxSide };
-			const ni = (window as any).require?.("electron")?.nativeImage;
+			const ni = electron()?.nativeImage;
 			const thumb = await ni?.createThumbnailFromPath?.(diskPath, size);
 			if (thumb && !thumb.isEmpty()) return await toJpeg(thumb.toDataURL(), maxSide, false);
 		} catch { /* not available */ }
@@ -1868,16 +1868,16 @@ export function heicSize(buf: ArrayBuffer): { w: number; h: number } | null {
 
 /** Where a vault file lives on disk (desktop only). */
 function diskPathOf(app: App, f: TFile): string | undefined {
-	try { return (app.vault.adapter as any).getFullPath?.(f.path); } catch { return undefined; }
+	try { return (app.vault.adapter as unknown as { getFullPath?(p: string): string }).getFullPath?.(f.path); } catch { return undefined; }
 }
 /** Where a picked/dropped file lives on disk (desktop only). */
 function diskPathOfUpload(f: File): string | undefined {
-	try { return (window as any).require?.("electron")?.webUtils?.getPathForFile?.(f) || (f as any).path || undefined; } catch { return undefined; }
+	try { return electron()?.webUtils?.getPathForFile?.(f) || (f as File & { path?: string }).path || undefined; } catch { return undefined; }
 }
 
 export function parseBoard(data: string): BoardDoc {
 	try {
-		const d = JSON.parse(data || "{}");
+		const d = JSON.parse(data || "{}") as Partial<BoardDoc>;
 		return { elements: Array.isArray(d.elements) ? d.elements : [], bg: d.bg ?? "grid", ...(Array.isArray(d.layers) && d.layers.length ? { layers: d.layers, active: d.active } : {}) };
 	} catch {
 		return { elements: [], bg: "grid" };

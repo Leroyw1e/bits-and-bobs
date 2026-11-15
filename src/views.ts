@@ -47,7 +47,7 @@ const TRANSITIONS: [Transition, string][] = [["none", "None"], ["fade", "Fade"],
 
 export function parseDeck(data: string): Deck {
 	try {
-		const d = JSON.parse(data || "{}");
+		const d = JSON.parse(data || "{}") as Partial<Deck>;
 		const slides: Slide[] = Array.isArray(d.slides) && d.slides.length ? d.slides : [newSlide("title")];
 		return { w: d.w || 1600, h: d.h || 900, slides, theme: d.theme, font: d.font };
 	} catch {
@@ -58,7 +58,7 @@ const serializeDeck = (d: Deck) => JSON.stringify({ type: "math-studio-slides", 
 
 export function newSlide(layout = "content"): Slide {
 	const l = LAYOUTS.find((x) => x.id === layout) ?? LAYOUTS[1];
-	return { id: uid(), elements: l.make(), bg: "plain", layout: l.id } as Slide;
+	return { id: uid(), elements: l.make(), bg: "plain", layout: l.id };
 }
 
 export class SlidesView extends TextFileView {
@@ -179,7 +179,7 @@ export class SlidesView extends TextFileView {
 			this.current = i; this.markDirty(); this.loadSlide(); this.renderThumbs();
 		})));
 		m.addItem((it) => it.setTitle("Duplicate").setIcon("copy").onClick(() => {
-			const copy: Slide = JSON.parse(JSON.stringify(this.deck.slides[i])); copy.id = uid();
+			const copy = JSON.parse(JSON.stringify(this.deck.slides[i])) as Slide; copy.id = uid();
 			copy.elements.forEach((el) => (el.id = uid()));
 			this.deck.slides.splice(i + 1, 0, copy); this.markDirty(); this.current = i + 1; this.loadSlide(); this.renderThumbs();
 		}));
@@ -287,7 +287,7 @@ export class Presenter extends Component {
 	constructor(private plugin: BitsAndBobs, private deck: Deck, private sourcePath: string, start: number, private theme: Theme | null = null) { super(); this.i = start; }
 
 	open() {
-		this.el = document.body.createDiv("ms-present");
+		this.el = activeDocument.body.createDiv("ms-present");
 		const stage = this.el.createDiv("ms-present-stage");
 		const draw = this.plugin.settings.presentDraw;
 		if (draw) this.buildInkLayer();
@@ -313,7 +313,7 @@ export class Presenter extends Component {
 		bar.createSpan("ms-present-sep");
 		b("x", "Exit (Esc)", () => this.close());
 		super.load();
-		this.registerDomEvent(document, "keydown", (e) => {
+		this.registerDomEvent(activeDocument, "keydown", (e) => {
 			const k = e.key.toLowerCase();
 			if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.step(1); }
 			else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.step(-1); }
@@ -331,7 +331,7 @@ export class Presenter extends Component {
 			if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) this.step(dx < 0 ? 1 : -1);
 			else if (Math.hypot(dx, dy) < 8 && e.pointerType !== "pen") this.step(e.clientX > window.innerWidth / 3 ? 1 : -1);
 		});
-		this.registerDomEvent(document, "fullscreenchange", () => { if (!document.fullscreenElement && this.el.isConnected && !Platform.isMobile) this.close(); });
+		this.registerDomEvent(activeDocument, "fullscreenchange", () => { if (!activeDocument.fullscreenElement && this.el.isConnected && !Platform.isMobile) this.close(); });
 		if (!Platform.isMobile && this.plugin.settings.presentFullscreen) this.el.requestFullscreen?.().catch(() => {});
 		this.show();
 		this.syncInk();
@@ -340,10 +340,10 @@ export class Presenter extends Component {
 	// ---------- drawing on top of the slide ----------
 	private buildInkLayer() {
 		this.inkLayer = this.el.createDiv("ms-present-ink");
-		this.inkSvg = document.createElementNS(SVG_NS, "svg");
+		this.inkSvg = activeDocument.createElementNS(SVG_NS, "svg");
 		this.inkSvg.addClass("ms-present-ink-svg");
 		this.inkLayer.appendChild(this.inkSvg);
-		this.laserTrail = document.createElementNS(SVG_NS, "path");
+		this.laserTrail = activeDocument.createElementNS(SVG_NS, "path");
 		this.laserTrail.addClass("ms-laser-trail");
 		this.inkSvg.appendChild(this.laserTrail);
 		this.laser = this.inkLayer.createDiv("ms-laser");
@@ -351,9 +351,9 @@ export class Presenter extends Component {
 		const pos = (e: PointerEvent) => { const r = this.inkLayer.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
 		const moveLaser = (e: PointerEvent) => {
 			const { x, y } = pos(e);
-			this.laser.setCssStyles({ left: x + "px", top: y + "px", display: "block" });
+			this.laser.setCssProps({ left: x + "px", top: y + "px" }); this.laser.addClass("is-on");
 			this.trail.push({ x, y, t: performance.now() });
-			if (!this.trailFrame) this.trailFrame = requestAnimationFrame(() => this.drawTrail());
+			if (!this.trailFrame) this.trailFrame = window.requestAnimationFrame(() => this.drawTrail());
 		};
 		this.registerDomEvent(this.inkLayer, "pointerdown", (e) => {
 			e.preventDefault(); e.stopPropagation();
@@ -381,11 +381,11 @@ export class Presenter extends Component {
 		};
 		this.registerDomEvent(this.inkLayer, "pointerup", end);
 		this.registerDomEvent(this.inkLayer, "pointercancel", end);
-		this.registerDomEvent(this.inkLayer, "pointerleave", () => { if (this.inkTool === "laser") this.laser.setCssStyles({ display: "none" }); });
+		this.registerDomEvent(this.inkLayer, "pointerleave", () => { if (this.inkTool === "laser") this.laser.removeClass("is-on"); });
 	}
 
 	private addInkPath(el: StrokeEl) {
-		const g = document.createElementNS(SVG_NS, "path");
+		const g = activeDocument.createElementNS(SVG_NS, "path");
 		g.setAttribute("d", strokePath(el));
 		g.setCssStyles({ fill: el.color });
 		if (el.hl) g.addClass("is-hl");
@@ -398,7 +398,7 @@ export class Presenter extends Component {
 		const now = performance.now();
 		this.trail = this.trail.filter((p) => now - p.t < 450);
 		this.laserTrail.setAttribute("d", this.trail.length > 1 ? this.trail.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") : "");
-		if (this.trail.length) this.trailFrame = requestAnimationFrame(() => this.drawTrail());
+		if (this.trail.length) this.trailFrame = window.requestAnimationFrame(() => this.drawTrail());
 	}
 
 	private renderInk() {
@@ -423,7 +423,7 @@ export class Presenter extends Component {
 		this.inkLayer.dataset.tool = this.inkTool;
 		this.el.toggleClass("is-inking", this.inkTool !== "none");
 		for (const [k, b] of this.inkBtns) b.toggleClass("is-active", k === this.inkTool);
-		if (this.inkTool !== "laser") { this.laser.setCssStyles({ display: "none" }); this.trail = []; this.laserTrail.setAttribute("d", ""); }
+		if (this.inkTool !== "laser") { this.laser.removeClass("is-on"); this.trail = []; this.laserTrail.setAttribute("d", ""); }
 		this.swatchBar.empty();
 		const colours = this.inkTool === "pen" ? INK_PEN : this.inkTool === "highlighter" ? INK_HL : [];
 		for (const c of colours) {
@@ -445,7 +445,7 @@ export class Presenter extends Component {
 		this.addChild(b);
 		this.units = []; this.shown = 0; this.ready = false;
 		if (effects && s.transition && s.transition !== "none") b.root.addClass("ms-tr-" + s.transition, back ? "is-back" : "is-fwd");
-		if (effects && s.reveal) b.whenRendered().then(() => { if (this.board === b) this.prepareReveal(s, b, full); });
+		if (effects && s.reveal) void b.whenRendered().then(() => { if (this.board === b) this.prepareReveal(s, b, full); });
 		else this.ready = true;
 		this.counter.setText(`${this.i + 1} / ${this.deck.slides.length}`);
 		this.renderInk();
@@ -487,8 +487,8 @@ export class Presenter extends Component {
 		this.i = i; this.show(back, back);
 	}
 	close() {
-		if (this.trailFrame) cancelAnimationFrame(this.trailFrame);
-		if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+		if (this.trailFrame) window.cancelAnimationFrame(this.trailFrame);
+		if (activeDocument.fullscreenElement) activeDocument.exitFullscreen().catch(() => {});
 		this.unload();
 		this.el.remove();
 	}
@@ -507,15 +507,15 @@ export function boardEmbed(plugin: BitsAndBobs, container: HTMLElement, file: TF
 		board = new Board(plugin, container, parseBoard(data), {
 			sourcePath: file.path,
 			compact: true,
-			onOpenFull: () => plugin.app.workspace.getLeaf("tab").openFile(file),
+			onOpenFull: () => { void plugin.app.workspace.getLeaf("tab").openFile(file); },
 			onChange: (doc) => {
 				window.clearTimeout(timer);
-				timer = window.setTimeout(async () => { lastSaved = serializeBoard(doc); await plugin.app.vault.process(file, () => lastSaved); }, 600);
+				timer = window.setTimeout(() => { lastSaved = serializeBoard(doc); void plugin.app.vault.process(file, () => lastSaved); }, 600);
 			},
 		});
 		parent.addChild(board);
 	};
-	parent.registerEvent(plugin.app.vault.on("modify", (f) => { if (f === file) load(); }));
-	parent.register(() => { if (timer && board) { window.clearTimeout(timer); const data = serializeBoard(board.doc); plugin.app.vault.process(file, () => data); } });
+	parent.registerEvent(plugin.app.vault.on("modify", (f) => { if (f === file) void load(); }));
+	parent.register(() => { if (timer && board) { window.clearTimeout(timer); const data = serializeBoard(board.doc); void plugin.app.vault.process(file, () => data); } });
 	load().catch((e) => { console.error(e); new Notice("Couldn't open board"); });
 }

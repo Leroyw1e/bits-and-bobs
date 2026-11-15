@@ -54,7 +54,7 @@ class ChartModal extends Modal {
 	private countLabel!: HTMLElement;
 	private countInput!: HTMLInputElement;
 
-	constructor(app: App, initial: ChartSpec | null, private onDone: (spec: ChartSpec) => void, private editing: boolean) {
+	constructor(app: App, initial: ChartSpec | null, private onDone: (spec: ChartSpec) => unknown, private editing: boolean) {
 		super(app);
 		this.spec = initial ? (JSON.parse(JSON.stringify(initial)) as ChartSpec) : emptyChart();
 	}
@@ -125,7 +125,7 @@ class ChartModal extends Modal {
 		this.syncKind();
 		this.buildTable();
 		this.redraw();
-		window.setTimeout(() => (this.tableEl.querySelector("input.bb-chart-value") as HTMLInputElement | null)?.focus(), 40);
+		window.setTimeout(() => this.tableEl.querySelector<HTMLInputElement>("input.bb-chart-value")?.focus(), 40);
 	}
 
 	private labelsEl!: HTMLElement;
@@ -209,7 +209,7 @@ class ChartModal extends Modal {
 		const s = this.spec;
 		this.previewEl.empty();
 		const W = 460, H = 300;
-		const svg = renderChart({ type: s.kind, title: s.title }, specToData(s), themeFromCss(document.body), W, H, { ymin: s.ymin, ymax: s.ymax, xLabel: s.xLabel, yLabel: s.yLabel });
+		const svg = renderChart({ type: s.kind, title: s.title }, specToData(s), themeFromCss(activeDocument.body), W, H, { ymin: s.ymin, ymax: s.ymax, xLabel: s.xLabel, yLabel: s.yLabel });
 		this.previewEl.appendChild(svg);
 		const p = this.problem();
 		this.errorEl.setText(p);
@@ -226,6 +226,6 @@ class ChartModal extends Modal {
 	onClose() { this.contentEl.empty(); }
 }
 
-export function openChartDialog(app: App, initial: ChartSpec | null, done: (spec: ChartSpec) => void) {
+export function openChartDialog(app: App, initial: ChartSpec | null, done: (spec: ChartSpec) => unknown) {
 	new ChartModal(app, initial, done, initial !== null).open();
 }

@@ -8,7 +8,7 @@ export interface ChartTheme { fg: string; muted: string; grid: string; bg: strin
 
 const SVGNS = "http://www.w3.org/2000/svg";
 const el = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string) => {
-	const e = document.createElementNS(SVGNS, tag);
+	const e = activeDocument.createElementNS(SVGNS, tag);
 	for (const k in attrs) e.setAttribute(k, String(attrs[k]));
 	if (text !== undefined) e.textContent = text;
 	return e;

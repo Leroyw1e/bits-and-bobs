@@ -1,8 +1,8 @@
 // A small formula engine shared by spreadsheets (Excel-style formulas)
 // and graphs on boards (plain maths like 2x^2 + sin(x)).
 
-export class FErr {
-	constructor(public code: string) {}
+export class FErr extends Error {
+	constructor(public code: string) { super(code); this.name = "FErr"; }
 	toString() { return this.code; }
 }
 export type V = number | string | boolean | FErr;

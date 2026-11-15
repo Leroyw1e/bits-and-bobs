@@ -23,7 +23,7 @@ export class SymbolsView extends ItemView {
 		c.addClass("bb-symbols");
 		const search = c.createEl("input", { type: "search", cls: "bb-symbols-search", attr: { placeholder: "Search symbols" } });
 		search.oninput = () => { this.query = search.value.trim().toLowerCase(); this.draw(); };
-		search.onkeydown = (e) => { if (e.key === "Enter") (this.grid.querySelector("button") as HTMLButtonElement | null)?.click(); };
+		search.onkeydown = (e) => { if (e.key === "Enter") this.grid.querySelector("button")?.click(); };
 		this.tabs = c.createDiv("bb-symbols-tabs");
 		this.grid = c.createDiv("bb-symbols-grid");
 		c.createDiv({ cls: "bb-symbols-tip", text: "Click where you want it, then tap a symbol. In a note, type \\ and a name for a quick search." });
@@ -51,7 +51,7 @@ export class SymbolsView extends ItemView {
 			: MATH_GROUPS[this.group].items;
 		if (!items.length) this.grid.createDiv({ cls: "bb-symbols-empty", text: "No symbols match." });
 		for (const item of items) this.addButton(item);
-		finishRenderMath();
+		void finishRenderMath();
 	}
 
 	private addButton(item: MathItem) {

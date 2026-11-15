@@ -19,7 +19,7 @@ export const NUMBER_FORMATS: { label: string; nf: string }[] = [
 ];
 
 export function formatNumber(n: number, nf: string): string | null {
-	try { return (XLSX as any).SSF.format(nf, n); } catch { return null; }
+	try { return (XLSX as unknown as { SSF: { format(f: string, v: number): string } }).SSF.format(nf, n); } catch { return null; }
 }
 
 export function cleanFmt(f: CellFmt): CellFmt | null {
@@ -69,7 +69,7 @@ export function readMeta(wb: XLSX.WorkBook): MetaPayload | null {
 	delete wb.Sheets[META_SHEET];
 	wb.SheetNames = wb.SheetNames.filter((n) => n !== META_SHEET);
 	try {
-		const p = JSON.parse(json);
+		const p = JSON.parse(json) as Partial<MetaPayload> & { v?: number } | null;
 		return p && p.v === 1 && p.sheets ? (p as MetaPayload) : null;
 	} catch { return null; }
 }

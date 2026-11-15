@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import type BitsAndBobs from "./main";
 import { FErr, FUNCTIONS, V, addr, colName, parse, parseAddr, run } from "./formula";
 import { insertInField, matchTool } from "./math";
-import { CellFmt, ChartDef, ChartType, FILL_COLOURS, META_SHEET, NUMBER_FORMATS, TEXT_COLOURS, cleanFmt, displayValue, planFill, readMeta, shiftFormula, writeMeta, MetaPayload } from "./sheetmeta";
+import { CellFmt, ChartDef, ChartType, FILL_COLOURS, NUMBER_FORMATS, TEXT_COLOURS, cleanFmt, displayValue, planFill, readMeta, shiftFormula, writeMeta, MetaPayload } from "./sheetmeta";
 import { chartData, parseRange, renderChart, ChartTheme } from "./charts";
 
 export const VIEW_SHEET = "math-studio-sheet";
@@ -148,16 +148,6 @@ export function display(v: V, nf?: string): string {
 	return displayValue(v, nf);
 }
 
-function displayLegacy(v: V): string {
-	if (v instanceof FErr) return v.code;
-	if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-	if (typeof v === "number") {
-		if (Number.isInteger(v)) return String(v);
-		const s = Math.abs(v) >= 1e12 || (Math.abs(v) < 1e-6 && v !== 0) ? v.toExponential(6) : String(Math.round(v * 1e10) / 1e10);
-		return s;
-	}
-	return v;
-}
 
 interface Snap { sheet: number; raw: [string, string][]; fmt: [string, CellFmt][]; charts: string }
 
@@ -189,7 +179,7 @@ export class SheetView extends FileView {
 	canAcceptExtension(ext: string) { return ext === EXT_SHEET; }
 
 	async onOpen() {
-		this.registerEvent(this.app.vault.on("modify", (f) => { if (f === this.file && !this.writing) this.onLoadFile(f as TFile); }));
+		this.registerEvent(this.app.vault.on("modify", (f) => { if (f === this.file && f instanceof TFile && !this.writing) void this.onLoadFile(f); }));
 	}
 
 	async onLoadFile(file: TFile) {
@@ -212,7 +202,7 @@ export class SheetView extends FileView {
 	// ---------- saving ----------
 	private scheduleSave() {
 		window.clearTimeout(this.saveTimer);
-		this.saveTimer = window.setTimeout(() => this.flush(), 700);
+		this.saveTimer = window.setTimeout(() => { void this.flush(); }, 700);
 	}
 	private async flush() {
 		if (!this.saveTimer || !this.book || !this.file) return;
@@ -239,7 +229,7 @@ export class SheetView extends FileView {
 		const s = from.pop(); if (!s || !this.book) return;
 		to.push(this.snap(s.sheet));
 		const sh = this.book.sheets[s.sheet];
-		sh.raw = new Map(s.raw); sh.fmt = new Map(s.fmt); sh.charts = JSON.parse(s.charts);
+		sh.raw = new Map(s.raw); sh.fmt = new Map(s.fmt); sh.charts = JSON.parse(s.charts) as typeof sh.charts;
 		this.active = s.sheet; this.changed(true);
 	}
 	setCell(r: number, c: number, raw: string, record = true) {
@@ -274,17 +264,17 @@ export class SheetView extends FileView {
 		btn("columns-3", "Add 10 columns", () => { this.sheet.cols += 10; this.build(); });
 		btn("undo-2", "Undo (⌘Z)", () => this.restore(this.undoStack, this.redoStack));
 		btn("redo-2", "Redo (⇧⌘Z)", () => this.restore(this.redoStack, this.undoStack));
-		btn("clipboard-copy", "Copy selection as a Markdown table", () => this.copyMarkdown());
+		btn("clipboard-copy", "Copy selection as a Markdown table", () => { void this.copyMarkdown(); });
 		const st = this.plugin.settings;
 		const ac = btn("spell-check", "Autocorrect & keyboard predictions (on/off)", () => {
-			st.sheetAutocorrect = !st.sheetAutocorrect; this.plugin.saveSettings();
+			st.sheetAutocorrect = !st.sheetAutocorrect; void this.plugin.saveSettings();
 			ac.toggleClass("is-active", st.sheetAutocorrect);
 			this.applyTyping(this.fbar); if (this.editor) this.applyTyping(this.editor.input);
 			new Notice(`Autocorrect & predictions ${st.sheetAutocorrect ? "on" : "off"}`);
 		}, "Autocorrect");
 		ac.toggleClass("is-active", st.sheetAutocorrect);
 		const sg = btn("wand-2", "Suggest functions while typing a formula (on/off)", () => {
-			st.sheetSuggest = !st.sheetSuggest; this.plugin.saveSettings();
+			st.sheetSuggest = !st.sheetSuggest; void this.plugin.saveSettings();
 			sg.toggleClass("is-active", st.sheetSuggest); this.hideSuggest();
 			new Notice(`Formula suggestions ${st.sheetSuggest ? "on" : "off"}`);
 		}, "Suggest");
@@ -299,7 +289,7 @@ export class SheetView extends FileView {
 				btn(icon, label, () => this.applyFmt((f, on) => { if (on) f.al = al; else delete f.al; }, (f) => f.al === al));
 			}
 			btn("hash", "Number format", (e) => this.numberFormatMenu(e), "123");
-			btn("eraser", "Clear formatting", () => this.applyFmt((f) => { for (const k of Object.keys(f)) delete (f as any)[k]; }));
+			btn("eraser", "Clear formatting", () => this.applyFmt((f) => { for (const k of Object.keys(f)) delete (f as Record<string, unknown>)[k]; }));
 			void bold; void ital;
 		}
 		if (st.sheetCharts) {
@@ -327,7 +317,7 @@ export class SheetView extends FileView {
 		this.table = this.gridWrap.createEl("table", { cls: "ms-grid" });
 		const s = this.sheet;
 		const cg = this.table.createEl("colgroup");
-		cg.createEl("col").style.width = "44px";
+		cg.createEl("col", { cls: "ms-rowhead-col" });
 		for (let cc = 0; cc < s.cols; cc++) cg.createEl("col").style.width = (s.colW.get(cc) ?? COL_W) + "px";
 		this.sizeTable();
 		const head = this.table.createTHead().insertRow();
@@ -367,7 +357,7 @@ export class SheetView extends FileView {
 		// events
 		let dragging = false;
 		this.table.onpointerdown = (e) => {
-			const td = (e.target as HTMLElement).closest("td") as HTMLTableCellElement | null;
+			const td = (e.target as HTMLElement).closest("td");
 			const th = (e.target as HTMLElement).closest("th") as HTMLElement | null;
 			if (td) {
 				const r = +td.dataset.r!, cc = +td.dataset.c!;
@@ -421,7 +411,7 @@ export class SheetView extends FileView {
 			const orig = kind === "row" ? s.rowH.get(i) ?? ROW_H : s.colW.get(i) ?? COL_W;
 			const col = this.table.querySelectorAll("col")[i + 1] as HTMLElement | undefined;
 			const tr = this.table.tBodies[0].rows[i];
-			document.body.addClass(kind === "row" ? "ms-resizing-row" : "ms-resizing-col");
+			activeDocument.body.addClass(kind === "row" ? "ms-resizing-row" : "ms-resizing-col");
 			const move = (ev: PointerEvent) => {
 				const size = Math.max(kind === "row" ? 16 : 30, Math.round(orig + (kind === "row" ? ev.clientY : ev.clientX) - start));
 				if (kind === "row") { s.rowH.set(i, size); tr?.style.setProperty("--rh", size + "px"); }
@@ -429,7 +419,7 @@ export class SheetView extends FileView {
 			};
 			const up = () => {
 				el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
-				document.body.removeClass("ms-resizing-row", "ms-resizing-col");
+				activeDocument.body.removeClass("ms-resizing-row", "ms-resizing-col");
 				this.positionFill();
 				this.scheduleSave();
 			};
@@ -503,8 +493,8 @@ export class SheetView extends FileView {
 			if (col) b.style.background = col;
 			b.onclick = () => { pop.remove(); pick(col); };
 		}
-		const close = (e: PointerEvent) => { if (!pop.contains(e.target as Node)) { pop.remove(); document.removeEventListener("pointerdown", close, true); } };
-		window.setTimeout(() => document.addEventListener("pointerdown", close, true), 0);
+		const close = (e: PointerEvent) => { if (!pop.contains(e.target as Node)) { pop.remove(); activeDocument.removeEventListener("pointerdown", close, true); } };
+		window.setTimeout(() => activeDocument.addEventListener("pointerdown", close, true), 0);
 	}
 
 	private numberFormatMenu(e: MouseEvent) {
@@ -538,7 +528,7 @@ export class SheetView extends FileView {
 		const src = this.range();
 		const clearPreview = () => this.table.querySelectorAll(".is-fill-preview").forEach((x) => x.removeClass("is-fill-preview"));
 		const move = (ev: PointerEvent) => {
-			const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+			const el = activeDocument.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
 			const td = el?.closest("td") as HTMLElement | null;
 			if (!td) return;
 			const tr = +td.dataset.r!, tc = +td.dataset.c!;
@@ -600,7 +590,7 @@ export class SheetView extends FileView {
 
 	// ---------- charts ----------
 	private chartTheme(): ChartTheme {
-		const cs = getComputedStyle(document.body);
+		const cs = getComputedStyle(activeDocument.body);
 		const get = (v: string, fb: string) => cs.getPropertyValue(v).trim() || fb;
 		return { fg: get("--text-normal", "#222"), muted: get("--text-muted", "#777"), grid: get("--background-modifier-border", "#ddd"), bg: get("--background-primary", "#fff") };
 	}
@@ -723,7 +713,7 @@ export class SheetView extends FileView {
 			c.getContext("2d")!.drawImage(img, 0, 0, 1600, 1040);
 			const blob = await new Promise<Blob | null>((res) => c.toBlob(res, "image/png"));
 			if (!blob) throw new Error("no image");
-			const name = (def.title || "Chart").replace(/[\\/:*?"<>|#^\[\]]/g, "").trim() || "Chart";
+			const name = (def.title || "Chart").replace(/[\\/:*?"<>|#^[\]]/g, "").trim() || "Chart";
 			const path = await this.app.fileManager.getAvailablePathForAttachment(`${name}.png`, this.file.path);
 			const file = await this.app.vault.createBinary(path, await blob.arrayBuffer());
 			try { await navigator.clipboard.writeText(`![[${file.path}]]`); } catch { /* clipboard not available */ }
@@ -806,7 +796,7 @@ export class SheetView extends FileView {
 			this.applyTyping(input);
 			input.onkeydown = (e) => this.editKey(e, input);
 			input.oninput = () => { this.fbar.value = input.value; this.updateSuggest(input); };
-			input.onblur = () => window.setTimeout(() => { if (this.editor?.input === input && document.activeElement !== this.fbar) this.commitEdit(); }, 120);
+			input.onblur = () => window.setTimeout(() => { if (this.editor?.input === input && activeDocument.activeElement !== this.fbar) this.commitEdit(); }, 120);
 			input.focus();
 		}
 		input.value = raw;
@@ -814,7 +804,7 @@ export class SheetView extends FileView {
 		this.editor = { input, r, c, fromBar };
 		this.fillHandle?.addClass("is-hidden");
 		if (fromBar) {
-			this.fbar.onblur = () => window.setTimeout(() => { if (this.editor?.input === this.fbar && document.activeElement !== this.fbar) this.commitEdit(); }, 150);
+			this.fbar.onblur = () => window.setTimeout(() => { if (this.editor?.input === this.fbar && activeDocument.activeElement !== this.fbar) this.commitEdit(); }, 150);
 		}
 		input.setSelectionRange(input.value.length, input.value.length);
 	}
@@ -858,7 +848,7 @@ export class SheetView extends FileView {
 		input.setAttr("autocomplete", on ? "on" : "off");
 		input.spellcheck = on;
 		// re-focus so the iPad keyboard picks up the change straight away
-		if (document.activeElement === input) { input.blur(); input.focus(); }
+		if (activeDocument.activeElement === input) { input.blur(); input.focus(); }
 	}
 
 	// ---------- formula suggestions ----------
@@ -999,7 +989,7 @@ class RenameModal extends Modal {
 		new Setting(this.contentEl).addText((t) => {
 			t.setValue(this.value).onChange((v) => (this.value = v.trim()));
 			t.inputEl.onkeydown = (e) => { if (e.key === "Enter") { this.close(); this.done(this.value); } };
-			setTimeout(() => t.inputEl.select(), 30);
+			window.setTimeout(() => t.inputEl.select(), 30);
 		}).addButton((b) => b.setButtonText("Save").setCta().onClick(() => { this.close(); this.done(this.value); }));
 	}
 }
@@ -1021,7 +1011,7 @@ class FunctionPicker extends Modal {
 			});
 		};
 		search.oninput = draw;
-		search.onkeydown = (e) => { if (e.key === "Enter") (list.querySelector("button") as HTMLButtonElement | null)?.click(); };
+		search.onkeydown = (e) => { if (e.key === "Enter") list.querySelector("button")?.click(); };
 		draw();
 		if (!Platform.isMobile) search.focus();
 	}
@@ -1050,6 +1040,6 @@ export async function sheetEmbed(plugin: BitsAndBobs, container: HTMLElement, fi
 			for (let c = 0; c <= Math.min(mc, 25); c++) { const v = book.value(s, addr(r, c)); const td = tr.insertCell(); td.setText(display(v)); td.toggleClass("is-num", typeof v === "number"); }
 		}
 	};
-	parent.registerEvent(plugin.app.vault.on("modify", (f) => { if (f === file) render(); }));
+	parent.registerEvent(plugin.app.vault.on("modify", (f) => { if (f === file) void render(); }));
 	await render();
 }

@@ -1,5 +1,5 @@
 import { Component, Editor, EditorPosition, ItemView, MarkdownView, Notice, Platform, Plugin, TFile, TFolder, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
-import { BoardView, SlidesView, VIEW_BOARD, VIEW_SLIDES, EXT_BOARD, EXT_SLIDES, boardEmbed, newSlide } from "./views";
+import { BoardView, SlidesView, VIEW_BOARD, VIEW_SLIDES, EXT_BOARD, EXT_SLIDES, boardEmbed, newSlide, parseDeck } from "./views";
 import { SheetView, VIEW_SHEET, EXT_SHEET, emptyXlsx, sheetEmbed } from "./sheet";
 import { MATH_TOOLS, MathItem, MathPalette, MathSuggest, MathTool, insertInEditor, insertInField, insideMath, matchTool, setShortcutsEnabled, shortcutLabel } from "./math";
 import { Board } from "./board";
@@ -9,6 +9,8 @@ import { operatorFor, piBlocked, rewriteTyping } from "./typing";
 import { solveLine } from "./autosolve";
 import { convertUnits } from "./units";
 import { ghostExtension, setGhost } from "./ghost";
+import { CanvasLike, EmbedFactory, VaultConfig, internal } from "./internal";
+import { themeFor } from "./themes";
 import type { EditorView } from "@codemirror/view";
 import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
@@ -28,7 +30,7 @@ export default class BitsAndBobs extends Plugin {
 	private lastTarget: WorkspaceLeaf | null = null;
 
 	async onload() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		const st = this.settings;
 		setShortcutsEnabled(st.mathShortcuts);
 
@@ -42,7 +44,7 @@ export default class BitsAndBobs extends Plugin {
 				checkCallback: (check) => {
 					const view = this.app.workspace.getActiveViewOfType(ItemView);
 					if (!view || view.getViewType() !== "canvas") return false;
-					if (!check) this.addDrawingToCanvas(view);
+					if (!check) void this.addDrawingToCanvas(view);
 					return true;
 				},
 			});
@@ -108,9 +110,9 @@ export default class BitsAndBobs extends Plugin {
 		this.addCommand({ id: "open-symbols", name: "Open the symbols menu", icon: "pi", callback: () => this.openSymbols(0) });
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this.trackTarget(leaf)));
 		// type ^ for small raised numbers, and = to solve a sum
-		this.registerDomEvent(document, "beforeinput", (e) => this.onBeforeInput(e as InputEvent), { capture: true });
-		this.registerDomEvent(document, "keydown", (e) => this.onTypingKey(e), { capture: true });
-		this.registerDomEvent(document, "pointerdown", () => this.superTyper.reset(), { capture: true });
+		this.registerDomEvent(activeDocument, "beforeinput", (e) => this.onBeforeInput(e), { capture: true });
+		this.registerDomEvent(activeDocument, "keydown", (e) => this.onTypingKey(e), { capture: true });
+		this.registerDomEvent(activeDocument, "pointerdown", () => this.superTyper.reset(), { capture: true });
 		this.addCommand({ id: "undo", name: "Undo on board, slide or spreadsheet", icon: "undo-2", checkCallback: (check) => this.undoRedo(false, check) });
 		this.addCommand({ id: "redo", name: "Redo on board, slide or spreadsheet", icon: "redo-2", checkCallback: (check) => this.undoRedo(true, check) });
 
@@ -133,9 +135,9 @@ export default class BitsAndBobs extends Plugin {
 		const redo = (k === "z" && e.shiftKey) || (k === "y" && !e.shiftKey && !Platform.isMacOS);
 		if (k !== "z" && !redo) return;
 		// typing in a text box or cell keeps the normal text undo
-		const a = document.activeElement;
-		if (a instanceof HTMLTextAreaElement || a instanceof HTMLInputElement || (a instanceof HTMLElement && a.isContentEditable)) return;
-		if (a instanceof HTMLElement && a.closest(".modal-container")) return;
+		const a = activeDocument.activeElement;
+		if (a?.instanceOf(HTMLTextAreaElement) || a?.instanceOf(HTMLInputElement) || (a?.instanceOf(HTMLElement) && a.isContentEditable)) return;
+		if (a?.instanceOf(HTMLElement) && a.closest(".modal-container")) return;
 		if (this.undoRedo(redo, false)) { e.preventDefault(); e.stopPropagation(); }
 	}
 
@@ -164,14 +166,13 @@ export default class BitsAndBobs extends Plugin {
 
 	applyShortcuts(on: boolean) { setShortcutsEnabled(on); }
 
-	applyBodyClasses() { document.body.toggleClass("bb-canvas-draw", this.settings.canvasDraw); }
+	applyBodyClasses() { activeDocument.body.toggleClass("bb-canvas-draw", this.settings.canvasDraw); }
 
 	/** Re-load the plugin so feature switches take effect, then return to its settings. */
 	async reload() {
-		const plugins = (this.app as any).plugins;
-		const setting = (this.app as any).setting;
+		const { plugins, setting } = internal(this.app);
 		const id = this.manifest.id;
-		if (!plugins?.disablePlugin) { new Notice("Restart Obsidian to apply this change."); return; }
+		if (!plugins?.disablePlugin || !plugins.enablePlugin) { new Notice("Restart Obsidian to apply this change."); return; }
 		await plugins.disablePlugin(id);
 		await plugins.enablePlugin(id);
 		setting?.openTabById?.(id);
@@ -179,9 +180,9 @@ export default class BitsAndBobs extends Plugin {
 
 	onunload() {
 		this.homeObserver?.disconnect();
-		document.querySelectorAll("[data-ms-home]").forEach((el) => el.remove());
-		document.body.removeClass("bb-canvas-draw");
-		const reg = (this.app as any).embedRegistry;
+		activeDocument.querySelectorAll("[data-ms-home]").forEach((el) => el.remove());
+		activeDocument.body.removeClass("bb-canvas-draw");
+		const reg = internal(this.app).embedRegistry;
 		try { if (this.registeredExts.length) reg?.unregisterExtensions?.(this.registeredExts); } catch { /* ignore */ }
 	}
 
@@ -204,16 +205,16 @@ export default class BitsAndBobs extends Plugin {
 	}
 
 	private activeField(): HTMLTextAreaElement | HTMLInputElement | null {
-		const a = document.activeElement;
-		if (a instanceof HTMLElement && a.closest(".ms-sheet, .ms-graph-modal")) return null; // these handle their own shortcuts
-		return a instanceof HTMLTextAreaElement || (a instanceof HTMLInputElement && a.type === "text") ? a : null;
+		const a = activeDocument.activeElement;
+		if (a?.instanceOf(HTMLElement) && a.closest(".ms-sheet, .ms-graph-modal")) return null; // these handle their own shortcuts
+		return a?.instanceOf(HTMLTextAreaElement) || (a?.instanceOf(HTMLInputElement) && a.type === "text") ? a : null;
 	}
 
 	runTool(t: MathTool) {
 		const editor = this.app.workspace.activeEditor?.editor;
 		const field = this.activeField();
 		if (t.special === "fraction") { this.doFraction(); return; }
-		if (t.action) { this.openSymbols(t.action === "greek" ? 1 : 0); return; }
+		if (t.action) { void this.openSymbols(t.action === "greek" ? 1 : 0); return; }
 		if (field) insertInField(field, t.insert!);
 		else if (editor) insertInEditor(editor, t.insert!);
 	}
@@ -247,8 +248,8 @@ export default class BitsAndBobs extends Plugin {
 	/** Put a symbol where you were last typing: a board's text box, a note, or a new maths box on a board. */
 	insertSymbol(item: MathItem) {
 		if (item.special === "fraction") { this.doFraction(); return; }
-		const a = document.activeElement;
-		if (a instanceof HTMLTextAreaElement && a.classList.contains("ms-text-edit")) { insertInField(a, item.insert); return; }
+		const a = activeDocument.activeElement;
+		if (a?.instanceOf(HTMLTextAreaElement) && a.classList.contains("ms-text-edit")) { insertInField(a, item.insert); return; }
 		const view = this.lastTarget?.view;
 		if (view instanceof MarkdownView && view.editor) { insertInEditor(view.editor, item.insert); return; }
 		if (view instanceof BoardView || view instanceof SlidesView) { view.board?.newMath(item.insert); return; }
@@ -259,8 +260,8 @@ export default class BitsAndBobs extends Plugin {
 
 	/** Fraction: the top and bottom are typed into a small box, so there are no braces to get wrong. */
 	doFraction() {
-		const a = document.activeElement;
-		if (a instanceof HTMLTextAreaElement && a.classList.contains("ms-text-edit")) { fractionInField(this.app, a); return; }
+		const a = activeDocument.activeElement;
+		if (a?.instanceOf(HTMLTextAreaElement) && a.classList.contains("ms-text-edit")) { fractionInField(this.app, a); return; }
 		const view = this.lastTarget?.view;
 		if (view instanceof MarkdownView && view.editor) { fractionInEditor(this.app, view.editor); return; }
 		if (view instanceof BoardView || view instanceof SlidesView) { const b = view.board; if (b) fractionNewBox(this.app, (s) => b.newMath(s)); return; }
@@ -317,7 +318,7 @@ export default class BitsAndBobs extends Plugin {
 		const c = e.data;
 		const wantsSuper = st.superscriptTyping && (this.superTyper.active || c === "^");
 		const wantsSolve = st.autoSolve && c === "=";
-		const wantsRewrite = st.typeShortcuts && /[ )=>\-]/.test(c);
+		const wantsRewrite = st.typeShortcuts && /[ )=>-]/.test(c);
 		const wantsOp = st.realOperators && (c === "*" || c === "/");
 		const wantsPi = st.typePi && !/[A-Za-z_]/.test(c) && !this.superTyper.active;
 		if (!wantsSuper && !wantsSolve && !wantsRewrite && !wantsOp && !wantsPi) return;
@@ -328,7 +329,7 @@ export default class BitsAndBobs extends Plugin {
 		const skip = () => insideMath(editor.getRange({ line: 0, ch: 0 }, cur)) || this.inCode(editor, cur);
 
 		// "pi" on its own becomes π once the next character is typed (so "pie" and "spin" are left alone)
-		if (wantsPi && /(?<![A-Za-z_\\])pi$/.test(line) && !this.inCode(editor, cur) && !piBlocked(line) && !(this.noPi && this.noPi.line === cur.line && this.noPi.ch === cur.ch - 2)) {
+		if (wantsPi && /(^|[^A-Za-z_\\])pi$/.test(line) && !this.inCode(editor, cur) && !piBlocked(line) && !(this.noPi && this.noPi.line === cur.line && this.noPi.ch === cur.ch - 2)) {
 			e.preventDefault(); e.stopPropagation();
 			const math = insideMath(editor.getRange({ line: 0, ch: 0 }, cur));
 			const sym = math ? "\\pi " : "π";
@@ -408,7 +409,7 @@ export default class BitsAndBobs extends Plugin {
 		for (const id of ["math-palette", "inline-math", "power", "subscript", "fraction", "sqrt", "sum", "integral", "greek"]) {
 			const t = MATH_TOOLS.find((x) => x.id === id)!;
 			const tip = this.settings.mathShortcuts ? `${t.name}  (${shortcutLabel(t)})` : t.name;
-			const b = bar.createEl("span", { cls: "ms-sb-btn", attr: { "aria-label": tip, "data-tooltip-position": "top" } });
+			const b = bar.createSpan({ cls: "ms-sb-btn", attr: { "aria-label": tip, "data-tooltip-position": "top" } });
 			setIcon(b, t.icon);
 			// keep focus in the note so the symbol goes where the cursor is
 			b.onmousedown = (e) => e.preventDefault();
@@ -418,13 +419,13 @@ export default class BitsAndBobs extends Plugin {
 
 	// ---------- bottom row: iPad / iPhone toolbar ----------
 	addToMobileToolbar(silent = false) {
-		const vault = this.app.vault as any;
+		const vault = this.app.vault as unknown as VaultConfig;
 		try {
-			const current: string[] = vault.getConfig?.("mobileToolbarCommands") ?? [];
+			const current = (vault.getConfig?.("mobileToolbarCommands") as string[] | undefined) ?? [];
 			const ids = TOOLBAR_TOOLS.map((id) => `${this.manifest.id}:${id}`).filter((id) => !current.includes(id));
-			if (ids.length) vault.setConfig("mobileToolbarCommands", [...current, ...ids]);
+			if (ids.length) vault.setConfig?.("mobileToolbarCommands", [...current, ...ids]);
 			this.settings.mobileToolbarAdded = true;
-			this.saveSettings();
+			void this.saveSettings();
 			if (!silent || ids.length) new Notice("Maths buttons added to the mobile toolbar.");
 		} catch (e) {
 			console.error(e);
@@ -432,10 +433,10 @@ export default class BitsAndBobs extends Plugin {
 		}
 	}
 	removeFromMobileToolbar() {
-		const vault = this.app.vault as any;
+		const vault = this.app.vault as unknown as VaultConfig;
 		try {
-			const current: string[] = vault.getConfig?.("mobileToolbarCommands") ?? [];
-			vault.setConfig("mobileToolbarCommands", current.filter((id) => !id.startsWith(this.manifest.id + ":")));
+			const current = (vault.getConfig?.("mobileToolbarCommands") as string[] | undefined) ?? [];
+			vault.setConfig?.("mobileToolbarCommands", current.filter((id) => !id.startsWith(this.manifest.id + ":")));
 			new Notice("Maths buttons removed from the bottom toolbar.");
 		} catch (e) { console.error(e); }
 	}
@@ -443,11 +444,11 @@ export default class BitsAndBobs extends Plugin {
 	// ---------- Home + AI plugin: add buttons to its home screen ----------
 	setupHomeButtons() {
 		this.homeObserver?.disconnect();
-		document.querySelectorAll("[data-ms-home]").forEach((el) => el.remove());
+		activeDocument.querySelectorAll("[data-ms-home]").forEach((el) => el.remove());
 		if (!this.settings.homeButtons) return;
 		const inject = () => {
 			// "Dashboard" style: the row of chips (New note, New canvas, AI chat, Settings)
-			document.querySelectorAll<HTMLElement>(".hlh-dash-quick").forEach((row) => {
+			activeDocument.querySelectorAll<HTMLElement>(".hlh-dash-quick").forEach((row) => {
 				if (row.querySelector("[data-ms-home]")) return;
 				const settings = Array.from(row.children).find((c) => c.getAttribute("aria-label") === "Settings");
 				for (const [kind, icon, label] of HOME_ITEMS) {
@@ -459,7 +460,7 @@ export default class BitsAndBobs extends Plugin {
 				}
 			});
 			// "Modern" style: the big action cards
-			document.querySelectorAll<HTMLElement>(".hlh-actions").forEach((row) => {
+			activeDocument.querySelectorAll<HTMLElement>(".hlh-actions").forEach((row) => {
 				if (row.querySelector("[data-ms-home]")) return;
 				const settings = Array.from(row.children).find((c) => c.querySelector(".hlh-action-label")?.textContent === "Settings");
 				for (const [kind, icon, label, sub, hue] of HOME_ITEMS) {
@@ -478,51 +479,51 @@ export default class BitsAndBobs extends Plugin {
 		this.homeObserver = new MutationObserver(() => {
 			if (queued) return;
 			queued = true;
-			requestAnimationFrame(() => { queued = false; inject(); });
+			window.requestAnimationFrame(() => { queued = false; inject(); });
 		});
-		this.homeObserver.observe(document.body, { childList: true, subtree: true });
+		this.homeObserver.observe(activeDocument.body, { childList: true, subtree: true });
 	}
 
 	// ---------- embeds: show boards inside notes and Canvas ----------
 	private registerEmbeds() {
-		const reg = (this.app as any).embedRegistry;
+		const reg = internal(this.app).embedRegistry;
 		if (!reg?.registerExtension) return;
-		const make = (fn: (container: HTMLElement, file: TFile, c: Component) => void) => (ctx: any, file: TFile) => {
+		const make = (fn: (container: HTMLElement, file: TFile, c: Component) => void): EmbedFactory => (ctx, file) => {
 			const c = new EmbedComponent(() => fn(ctx.containerEl, file, c));
 			return c;
 		};
-		const safe = (ext: string, factory: any) => {
-			try { if (!reg.isExtensionRegistered?.(ext)) { reg.registerExtension(ext, factory); this.registeredExts.push(ext); } }
+		const safe = (ext: string, factory: EmbedFactory) => {
+			try { if (!reg.isExtensionRegistered?.(ext)) { reg.registerExtension?.(ext, factory); this.registeredExts.push(ext); } }
 			catch { /* another plugin handles this file type */ }
 		};
 		if (this.settings.boards) safe(EXT_BOARD, make((el, f, c) => boardEmbed(this, el, f, c)));
 		if (this.settings.sheets) safe(EXT_SHEET, make((el, f, c) => { sheetEmbed(this, el, f, c).catch((e) => { console.error(e); el.setText("Couldn't preview this spreadsheet."); }); }));
-		if (this.settings.slides) safe(EXT_SLIDES, make((el, f, c) => this.slidesEmbed(el, f, c)));
+		if (this.settings.slides) safe(EXT_SLIDES, make((el, f, c) => { void this.slidesEmbed(el, f, c); }));
 	}
 
 	private async slidesEmbed(el: HTMLElement, file: TFile, c: Component) {
 		el.addClass("ms-embed", "ms-slides-embed");
-		const deck = JSON.parse((await this.app.vault.read(file)) || "{}");
-		const s = deck.slides?.[0];
+		const deck = parseDeck(await this.app.vault.read(file));
+		const s = deck.slides[0];
 		const bar = el.createDiv("ms-embed-bar");
-		bar.createSpan({ text: `${file.basename} · ${deck.slides?.length ?? 0} slides` });
+		bar.createSpan({ text: `${file.basename} · ${deck.slides.length} slides` });
 		const open = bar.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Open slides" } });
 		setIcon(open, "maximize-2");
-		open.onclick = () => this.app.workspace.getLeaf("tab").openFile(file);
+		open.onclick = () => { void this.app.workspace.getLeaf("tab").openFile(file); };
 		if (!s) return;
 		const box = el.createDiv("ms-slides-embed-box");
-		box.style.aspectRatio = `${deck.w || 1600} / ${deck.h || 900}`;
-		c.addChild(new Board(this, box, { elements: s.elements, bg: s.bg }, { sourcePath: file.path, frame: { w: deck.w || 1600, h: deck.h || 900 }, readOnly: true }));
+		box.setCssProps({ "aspect-ratio": `${deck.w} / ${deck.h}` });
+		c.addChild(new Board(this, box, { elements: s.elements, bg: s.bg }, { sourcePath: file.path, frame: { w: deck.w, h: deck.h }, readOnly: true, theme: this.settings.slideEffects ? themeFor(deck.theme, deck.font) : null }));
 	}
 
 	private async addDrawingToCanvas(view: ItemView) {
-		const canvas = (view as any).canvas;
-		const canvasFile: TFile | undefined = (view as any).file;
+		const canvas = (view as unknown as { canvas?: CanvasLike }).canvas;
+		const canvasFile = (view as unknown as { file?: TFile }).file;
 		const f = await this.createFile("board", false, canvasFile?.parent?.path);
 		if (!f || !canvas) return;
 		try {
 			const centre = canvas.posCenter?.() ?? { x: 0, y: 0 };
-			canvas.createFileNode({ file: f, pos: { x: centre.x - 320, y: centre.y - 220 }, size: { width: 640, height: 440 }, save: true, focus: false });
+			canvas.createFileNode?.({ file: f, pos: { x: centre.x - 320, y: centre.y - 220 }, size: { width: 640, height: 440 }, save: true, focus: false });
 			canvas.requestSave?.();
 		} catch (e) {
 			console.error(e);

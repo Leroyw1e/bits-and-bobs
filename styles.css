@@ -387,3 +387,11 @@ body.ms-resizing-row, body.ms-resizing-row * { cursor: row-resize !important; }
 /* ---- faded answer suggestion ---- */
 .bb-ghost { opacity: .45; pointer-events: none; }
 .bb-ghost::after { content: "Tab"; margin-left: 6px; padding: 0 4px; font-size: .7em; border: 1px solid currentColor; border-radius: 4px; vertical-align: middle; }
+
+/* ---- classes used instead of setting styles in code ---- */
+.ms-world > .is-layer-hidden { display: none; }
+.ms-world > .is-being-edited { visibility: hidden; }
+.ms-guide.is-ruler .ms-guide-close { left: 6px; top: 6px; }
+.ms-laser.is-on { display: block; }
+col.ms-rowhead-col { width: 44px; }
+.ms-svg .is-filled { fill-opacity: .15; }

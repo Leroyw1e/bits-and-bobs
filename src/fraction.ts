@@ -21,7 +21,7 @@ class FractionModal extends Modal {
 			preview.empty();
 			try {
 				preview.appendChild(renderMath("\\frac{" + (top.value.trim() || "\\square") + "}{" + (bottom.value.trim() || "\\square") + "}", true));
-				finishRenderMath();
+				void finishRenderMath();
 			} catch { /* the preview is only a convenience */ }
 		};
 		const insert = () => {

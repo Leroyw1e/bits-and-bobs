@@ -79,12 +79,12 @@ export class BitsSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		const toggle = (key: BoolKey, name: string, desc: string, after?: (v: boolean) => void) =>
-			new Setting(containerEl).setName(name).setDesc(desc).addToggle((t) => t.setValue(s[key]).onChange(async (v) => {
+			new Setting(containerEl).setName(name).setDesc(desc).addToggle((t) => t.setValue(s[key]).onChange((v) => {
 				s[key] = v;
-				await this.plugin.saveSettings();
+				void this.plugin.saveSettings();
 				after?.(v);
 			}));
-		const feature = (key: BoolKey, name: string, desc: string) => toggle(key, name, desc, () => this.plugin.reload());
+		const feature = (key: BoolKey, name: string, desc: string) => toggle(key, name, desc, () => { void this.plugin.reload(); });
 
 		// General (no heading, per Obsidian's guidelines)
 		feature("boards", "Drawing boards", "Freeform boards for drawing, maths, images and graphs (.mboard files).");

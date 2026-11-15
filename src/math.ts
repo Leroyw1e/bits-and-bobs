@@ -226,7 +226,7 @@ export class MathPalette extends Modal {
 				b.onclick = () => { this.close(); this.onPick(item); };
 				if (q && idx === 0) b.addClass("is-first");
 			});
-			finishRenderMath();
+			void finishRenderMath();
 		};
 		MATH_GROUPS.forEach((g, i) => {
 			const t = tabs.createEl("button", { cls: "ms-palette-tab" + (i === this.group ? " is-active" : "") });
@@ -236,7 +236,7 @@ export class MathPalette extends Modal {
 		});
 		search.oninput = draw;
 		search.onkeydown = (e) => {
-			if (e.key === "Enter") { (grid.querySelector("button") as HTMLButtonElement | null)?.click(); }
+			if (e.key === "Enter") { grid.querySelector("button")?.click(); }
 		};
 		draw();
 		if (!Platform.isMobile) search.focus();
@@ -265,7 +265,7 @@ export class MathSuggest extends EditorSuggest<MathItem> {
 		el.addClass("ms-suggest");
 		preview(el.createDiv("ms-suggest-tex"), item.tex);
 		el.createDiv({ cls: "ms-suggest-name", text: item.label ? `${item.name} — ${item.label}` : item.name });
-		finishRenderMath();
+		void finishRenderMath();
 	}
 	selectSuggestion(item: MathItem) {
 		if (!this.context) return;
