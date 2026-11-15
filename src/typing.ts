@@ -51,3 +51,29 @@ export function rewriteTyping(line: string, c: string, inMath: boolean): Rewrite
 	}
 	return null;
 }
+
+/**
+ * Typing * or / straight after a number, a bracket or a single letter gives × or ÷.
+ * Returns the symbol, plus how many characters before the cursor to rewrite first (for dates), or null.
+ */
+export function operatorFor(line: string, c: string): { insert: string; remove: number } | null {
+	if (c !== "*" && c !== "/") return null;
+	// inside a [[link]], a [link](url), or a web address: leave it alone
+	const lastOpen = line.lastIndexOf("[["), lastClose = line.lastIndexOf("]]");
+	if (lastOpen > lastClose) return null;
+	if (/\]\([^)]*$/.test(line) || /\b[a-z][a-z0-9+.-]*:\/?\/?\S*$/i.test(line)) return null;
+	// a date like 1/2/2025: the first slash became ÷, so put it back
+	if (c === "/") {
+		const d = /(?<![\d.])(\d{1,4})÷(\d{1,2})$/.exec(line);
+		if (d) return { insert: `${d[1]}/${d[2]}/`, remove: d[0].length };
+	}
+	const before = line.replace(/\s+$/, "");
+	if (!before) return null;
+	const last = before.slice(-1);
+	const spaced = before.length !== line.length;
+	const ok =
+		/[\d)\]²³¹⁰⁴⁵⁶⁷⁸⁹⁾π]/.test(last) ||
+		(!spaced && /[A-Za-z]/.test(last) && !/[A-Za-z_*]/.test(before.slice(-2, -1))); // a single letter like x
+	if (!ok) return null;
+	return { insert: c === "*" ? "×" : "÷", remove: 0 };
+}

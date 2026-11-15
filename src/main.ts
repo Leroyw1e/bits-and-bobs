@@ -5,7 +5,7 @@ import { MATH_TOOLS, MathItem, MathPalette, MathSuggest, MathTool, insertInEdito
 import { Board } from "./board";
 import { BitsSettings, BitsSettingTab, DEFAULT_SETTINGS } from "./settings";
 import { SuperTyper } from "./superscript";
-import { rewriteTyping } from "./typing";
+import { operatorFor, rewriteTyping } from "./typing";
 import { solveLine } from "./autosolve";
 import { convertUnits } from "./units";
 import { ghostExtension, setGhost } from "./ghost";
@@ -280,7 +280,23 @@ export default class BitsAndBobs extends Plugin {
 		return false;
 	}
 
+	/** the last × or ÷ made from * or /, so Backspace can turn it back */
+	private lastOp: { line: number; ch: number; sym: string; orig: string } | null = null;
+
 	private onTypingKey(e: KeyboardEvent) {
+		const op = this.lastOp;
+		if (op && !["Shift", "Alt", "CapsLock", "Meta", "Control"].includes(e.key)) {
+			this.lastOp = null;
+			if (e.key === "Backspace" && !e.metaKey && !e.altKey && !e.ctrlKey) {
+				const editor = this.app.workspace.activeEditor?.editor;
+				const cur = editor?.getCursor();
+				if (editor && cur && !editor.somethingSelected() && cur.line === op.line && cur.ch === op.ch && editor.getRange({ line: cur.line, ch: cur.ch - op.sym.length }, cur) === op.sym) {
+					e.preventDefault(); e.stopPropagation();
+					editor.replaceRange(op.orig, { line: cur.line, ch: cur.ch - op.sym.length }, cur);
+					return;
+				}
+			}
+		}
 		if (!this.superTyper.active) return;
 		if (e.key === "Backspace" && this.superTyper.pending) { e.preventDefault(); e.stopPropagation(); this.superTyper.reset(); return; } // cancels the ^
 		if (e.metaKey || e.ctrlKey || (e.key.length > 1 && !["Shift", "Alt", "CapsLock"].includes(e.key))) this.superTyper.reset();
@@ -294,7 +310,8 @@ export default class BitsAndBobs extends Plugin {
 		const wantsSuper = st.superscriptTyping && (this.superTyper.active || c === "^");
 		const wantsSolve = st.autoSolve && c === "=";
 		const wantsRewrite = st.typeShortcuts && /[ )=>\-]/.test(c);
-		if (!wantsSuper && !wantsSolve && !wantsRewrite) return;
+		const wantsOp = st.realOperators && (c === "*" || c === "/");
+		if (!wantsSuper && !wantsSolve && !wantsRewrite && !wantsOp) return;
 		const editor = this.app.workspace.activeEditor?.editor;
 		if (!editor || editor.somethingSelected()) { this.superTyper.reset(); return; }
 		const cur = editor.getCursor();
@@ -308,6 +325,17 @@ export default class BitsAndBobs extends Plugin {
 			if (r) {
 				if (r.swallow) { e.preventDefault(); e.stopPropagation(); }
 				if (r.insert) editor.replaceSelection(r.insert);
+				return;
+			}
+		}
+		if (wantsOp && !this.superTyper.active && !skip()) {
+			const op = operatorFor(line, c);
+			if (op) {
+				e.preventDefault(); e.stopPropagation();
+				editor.replaceRange(op.insert, { line: cur.line, ch: cur.ch - op.remove }, cur);
+				const end = cur.ch - op.remove + op.insert.length;
+				editor.setCursor({ line: cur.line, ch: end });
+				if (op.insert.length === 1) this.lastOp = { line: cur.line, ch: end, sym: op.insert, orig: c };
 				return;
 			}
 		}
