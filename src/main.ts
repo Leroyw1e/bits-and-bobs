@@ -7,6 +7,9 @@ import { BitsSettings, BitsSettingTab, DEFAULT_SETTINGS } from "./settings";
 import { SuperTyper } from "./superscript";
 import { rewriteTyping } from "./typing";
 import { solveLine } from "./autosolve";
+import { convertUnits } from "./units";
+import { ghostExtension, setGhost } from "./ghost";
+import type { EditorView } from "@codemirror/view";
 import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
 import { openChartDialog, specToData } from "./chartdialog";
@@ -76,6 +79,7 @@ export default class BitsAndBobs extends Plugin {
 
 		// maths: commands (no default hotkeys — the shortcuts are handled below and can be turned off)
 		for (const t of MATH_TOOLS) this.addMathCommand(t);
+		this.registerEditorExtension(ghostExtension());
 		if (st.symbolSearch) this.registerEditorSuggest(new MathSuggest(this.app));
 		this.registerDomEvent(window, "keydown", (e) => this.onKey(e));
 		// ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y on Windows) whenever a board, deck or spreadsheet is the active tab
@@ -319,8 +323,18 @@ export default class BitsAndBobs extends Plugin {
 			}
 		}
 		if (wantsSolve) {
-			const answer = solveLine(line);
+			const answer = solveLine(line) ?? convertUnits(line);
 			if (answer === null || skip()) return;
+			if (st.autoSolveGhost) {
+				// let the "=" go in, then show the answer faded after it; Tab uses it
+				const view = (editor as unknown as { cm?: EditorView }).cm;
+				const at = editor.posToOffset(cur) + 1;
+				const text = (/\s$/.test(line) ? " " : "") + answer;
+				window.setTimeout(() => {
+					if (view && view.state.doc.sliceString(at - 1, at) === "=" && view.state.selection.main.head === at) view.dispatch({ effects: setGhost.of({ pos: at, text }) });
+				}, 0);
+				return;
+			}
 			e.preventDefault(); e.stopPropagation();
 			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
 		}

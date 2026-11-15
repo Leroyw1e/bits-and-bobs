@@ -383,3 +383,7 @@ body.ms-resizing-row, body.ms-resizing-row * { cursor: row-resize !important; }
 .ms-step-hidden { visibility: hidden !important; }
 .ms-step-in { animation: ms-tr-fade .35s ease both; }
 @media (prefers-reduced-motion: reduce) { .ms-board[class*="ms-tr-"], .ms-step-in { animation: none; } }
+
+/* ---- faded answer suggestion ---- */
+.bb-ghost { opacity: .45; pointer-events: none; }
+.bb-ghost::after { content: "Tab"; margin-left: 6px; padding: 0 4px; font-size: .7em; border: 1px solid currentColor; border-radius: 4px; vertical-align: middle; }
