@@ -512,7 +512,7 @@ export default class BitsAndBobs extends Plugin {
 		open.onclick = () => { void this.app.workspace.getLeaf("tab").openFile(file); };
 		if (!s) return;
 		const box = el.createDiv("ms-slides-embed-box");
-		box.setCssProps({ "aspect-ratio": `${deck.w} / ${deck.h}` });
+		box.setCssProps({ "--ms-aspect": `${deck.w} / ${deck.h}` });
 		c.addChild(new Board(this, box, { elements: s.elements, bg: s.bg }, { sourcePath: file.path, frame: { w: deck.w, h: deck.h }, readOnly: true, theme: this.settings.slideEffects ? themeFor(deck.theme, deck.font) : null }));
 	}
 

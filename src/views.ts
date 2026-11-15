@@ -158,7 +158,7 @@ export class SlidesView extends TextFileView {
 			const t = this.listEl.createDiv("ms-thumb" + (i === this.current ? " is-active" : ""));
 			t.createDiv({ cls: "ms-thumb-num", text: String(i + 1) });
 			const box = t.createDiv("ms-thumb-box");
-			box.style.aspectRatio = `${this.deck.w} / ${this.deck.h}`;
+			box.setCssProps({ "--ms-aspect": `${this.deck.w} / ${this.deck.h}` });
 			const b = new Board(this.plugin, box, { elements: s.elements, bg: s.bg }, { sourcePath: this.file?.path ?? "", frame: { w: this.deck.w, h: this.deck.h }, readOnly: true, theme: this.theme() });
 				this.addChild(b); this.thumbs.push(b);
 			t.onclick = () => this.go(i);

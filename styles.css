@@ -89,7 +89,7 @@
 .ms-sheet-embed { height: auto; max-height: 420px; }
 .ms-sheet-embed .ms-grid-wrap { overflow: auto; }
 .ms-slides-embed { height: auto; }
-.ms-slides-embed-box { position: relative; width: 100%; display: flex; }
+.ms-slides-embed-box { position: relative; width: 100%; display: flex; aspect-ratio: var(--ms-aspect, 16 / 9); }
 .ms-slides-embed-box .ms-board, .ms-thumb-box .ms-board { position: absolute; inset: 0; }
 
 /* ---------- slides ---------- */
@@ -100,7 +100,7 @@
 .ms-slide-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; outline: none; }
 .ms-thumb { display: flex; gap: 6px; cursor: pointer; align-items: flex-start; }
 .ms-thumb-num { font-size: var(--font-ui-smaller); color: var(--text-muted); width: 16px; text-align: right; padding-top: 2px; }
-.ms-thumb-box { position: relative; flex: 1; border-radius: 4px; overflow: hidden; border: 2px solid transparent; background: var(--background-primary); }
+.ms-thumb-box { position: relative; flex: 1; aspect-ratio: var(--ms-aspect, 16 / 9); border-radius: 4px; overflow: hidden; border: 2px solid transparent; background: var(--background-primary); }
 .ms-thumb.is-active .ms-thumb-box { border-color: var(--interactive-accent); }
 .ms-slide-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ms-slide-board { flex: 1; min-height: 0; display: flex; }

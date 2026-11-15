@@ -8,11 +8,7 @@ class GhostWidget extends WidgetType {
 	constructor(readonly text: string) { super(); }
 	eq(o: GhostWidget) { return o.text === this.text; }
 	toDOM() {
-		const s = activeDocument.createElement("span");
-		s.className = "bb-ghost";
-		s.textContent = this.text;
-		s.setAttribute("aria-hidden", "true");
-		return s;
+		return createSpan({ cls: "bb-ghost", text: this.text, attr: { "aria-hidden": "true" } });
 	}
 	ignoreEvent() { return true; }
 }

@@ -1787,7 +1787,7 @@ class GraphModal extends Modal {
 		}
 		const nums = { xmin: this.el.xmin, xmax: this.el.xmax, ymin: this.el.ymin, ymax: this.el.ymax };
 		const range = new Setting(contentEl).setName("Range").setDesc("x from / to, y from / to");
-		(Object.keys(nums) as (keyof typeof nums)[]).forEach((k) => range.addText((t) => { t.inputEl.type = "number"; t.inputEl.addClass("ms-num"); t.setValue(String(nums[k])).onChange((v) => { const n = parseFloat(v); if (!isNaN(n)) nums[k] = n; }); }));
+		(Object.keys(nums) as (keyof typeof nums)[]).forEach((k) => { range.addText((t) => { t.inputEl.type = "number"; t.inputEl.addClass("ms-num"); t.setValue(String(nums[k])).onChange((v) => { const n = parseFloat(v); if (!isNaN(n)) nums[k] = n; }); }); });
 		new Setting(contentEl).addButton((b) => b.setButtonText("Done").setCta().onClick(() => {
 			if (nums.xmax <= nums.xmin || nums.ymax <= nums.ymin) { new Notice("The 'to' value must be bigger than 'from'."); return; }
 			this.saved = true;
