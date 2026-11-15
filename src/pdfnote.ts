@@ -3,25 +3,31 @@ import { diskPathOfUpload, heicToJpeg, isHeic } from "./board";
 
 /** The small part of pdf.js (bundled with Obsidian) that is used here. */
 interface PdfTextItem { str?: string; hasEOL?: boolean; transform?: number[]; width?: number; height?: number; fontName?: string }
+interface PdfObjs { get(id: string, cb?: (o: unknown) => void): unknown }
 interface PdfPage {
 	getTextContent(): Promise<{ items: PdfTextItem[] }>;
-	getOperatorList?(): Promise<unknown>;
-	commonObjs?: { has?(id: string): boolean; get(id: string): unknown };
+	getOperatorList?(): Promise<{ fnArray: number[]; argsArray: unknown[][] }>;
+	commonObjs?: PdfObjs;
+	objs?: PdfObjs;
 }
+interface PdfImage { width: number; height: number; kind?: number; data?: Uint8Array | Uint8ClampedArray; bitmap?: ImageBitmap }
 interface PdfDoc { numPages: number; getPage(n: number): Promise<PdfPage>; destroy?(): Promise<void> }
-interface PdfJs { getDocument(src: { data: Uint8Array }): { promise: Promise<PdfDoc> } }
+interface PdfJs { getDocument(src: { data: Uint8Array }): { promise: Promise<PdfDoc> }; OPS?: Record<string, number> }
+
+/** Saves one picture from the PDF and returns its path in the vault. */
+export type SaveImage = (data: ArrayBuffer, ext: "png" | "jpg") => Promise<string>;
 
 export type PdfNoteStyle = "text" | "embed";
 
 interface Run { text: string; x: number; end: number; size: number; bold: boolean; italic: boolean }
-interface Line { y: number; x: number; size: number; runs: Run[]; page: number; first: boolean; last: boolean }
+interface Line { y: number; x: number; size: number; runs: Run[]; page: number; first: boolean; last: boolean; image?: string }
 
 /**
  * The PDF's text as Markdown, keeping its look: big text becomes headings, bold and italic stay,
  * bullets and numbered lists become lists, and lines broken only to fit the page are joined into paragraphs.
  * Page breaks and page numbers are left out. Empty if the PDF is only pictures (a scan).
  */
-export async function pdfMarkdown(data: ArrayBuffer): Promise<string> {
+export async function pdfMarkdown(data: ArrayBuffer, saveImage?: SaveImage): Promise<string> {
 	const pdfjs = (await loadPdfJs()) as PdfJs;
 	const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
 	const lines: Line[] = [];
@@ -30,7 +36,8 @@ export async function pdfMarkdown(data: ArrayBuffer): Promise<string> {
 			const page = await doc.getPage(n);
 			const { items } = await page.getTextContent();
 			// the real font names (like "Helvetica-Bold") only appear once the page's fonts are loaded
-			try { await page.getOperatorList?.(); } catch { /* fall back to plain text */ }
+			let ops: { fnArray: number[]; argsArray: unknown[][] } | undefined;
+			try { ops = await page.getOperatorList?.(); } catch { /* fall back to plain text */ }
 			const fontName = (id: string) => {
 				try { const f = page.commonObjs?.get(id) as { name?: string } | undefined; return f?.name ?? ""; } catch { return ""; }
 			};
@@ -49,12 +56,80 @@ export async function pdfMarkdown(data: ArrayBuffer): Promise<string> {
 			pageLines.sort((p, q) => q.y - p.y); // top of the page first
 			for (const l of pageLines) { l.runs.sort((p, q) => p.x - q.x); l.x = l.runs[0].x; }
 			if (pageLines.length) { pageLines[0].first = true; pageLines[pageLines.length - 1].last = true; }
+			// pictures go in where they sit among the text
+			if (saveImage && ops && pdfjs.OPS) {
+				try { pageLines.push(...(await pageImages(page, ops, pdfjs.OPS, n, saveImage))); } catch (e) { console.error(e); }
+				pageLines.sort((p, q) => q.y - p.y);
+			}
 			lines.push(...pageLines);
 		}
 	} finally {
 		await doc.destroy?.();
 	}
 	return toMarkdown(lines);
+}
+
+/** Finds the pictures drawn on a page, saves each one, and returns where they go. */
+async function pageImages(page: PdfPage, ops: { fnArray: number[]; argsArray: unknown[][] }, OPS: Record<string, number>, n: number, save: SaveImage): Promise<Line[]> {
+	const out: Line[] = [];
+	let ctm = [1, 0, 0, 1, 0, 0];
+	const stack: number[][] = [];
+	const times = (m: number[], c: number[]) => [m[0] * c[0] + m[1] * c[2], m[0] * c[1] + m[1] * c[3], m[2] * c[0] + m[3] * c[2], m[2] * c[1] + m[3] * c[3], m[4] * c[0] + m[5] * c[2] + c[4], m[4] * c[1] + m[5] * c[3] + c[5]];
+	for (let i = 0; i < ops.fnArray.length; i++) {
+		const fn = ops.fnArray[i], args = ops.argsArray[i];
+		if (fn === OPS.save) stack.push(ctm.slice());
+		else if (fn === OPS.restore) ctm = stack.pop() ?? ctm;
+		else if (fn === OPS.transform) ctm = times(args as number[], ctm);
+		else if (fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject || fn === OPS.paintInlineImageXObject) {
+			const w = Math.hypot(ctm[0], ctm[1]), h = Math.hypot(ctm[2], ctm[3]);
+			if (w < 40 || h < 40) continue; // little icons and lines, not pictures
+			let img: PdfImage | undefined;
+			if (fn === OPS.paintInlineImageXObject) img = args[0] as PdfImage;
+			else {
+				const id = String(args[0]);
+				const store = id.startsWith("g_") ? page.commonObjs : page.objs;
+				img = await new Promise<PdfImage | undefined>((resolve) => {
+					const timer = window.setTimeout(() => resolve(undefined), 4000);
+					try { store?.get(id, (o) => { window.clearTimeout(timer); resolve(o as PdfImage); }); } catch { window.clearTimeout(timer); resolve(undefined); }
+				});
+			}
+			if (!img?.width || !img.height) continue;
+			const file = await imageFile(img);
+			if (!file) continue;
+			const path = await save(file.data, file.ext);
+			const top = Math.max(ctm[5], ctm[5] + ctm[3]);
+			out.push({ y: top, x: ctm[4], size: 0, runs: [], page: n, first: false, last: false, image: path });
+		}
+	}
+	return out;
+}
+
+/** Turns a pdf.js picture into a JPEG (or a PNG if it has see-through parts). */
+async function imageFile(img: PdfImage): Promise<{ data: ArrayBuffer; ext: "png" | "jpg" } | null> {
+	const c = activeDocument.createElement("canvas");
+	c.width = img.width; c.height = img.height;
+	const g = c.getContext("2d");
+	if (!g) return null;
+	let alpha = false;
+	if (img.bitmap) g.drawImage(img.bitmap, 0, 0);
+	else if (img.data) {
+		const px = g.createImageData(img.width, img.height), dst = px.data, src = img.data;
+		const count = img.width * img.height;
+		if (img.kind === 3) { dst.set(src.subarray(0, count * 4)); alpha = true; }
+		else if (img.kind === 2) for (let p = 0, s = 0, d = 0; p < count; p++, s += 3, d += 4) { dst[d] = src[s]; dst[d + 1] = src[s + 1]; dst[d + 2] = src[s + 2]; dst[d + 3] = 255; }
+		else {
+			// one bit per pixel, rows padded to whole bytes
+			const row = Math.ceil(img.width / 8);
+			for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+				const on = (src[y * row + (x >> 3)] >> (7 - (x & 7))) & 1, d = (y * img.width + x) * 4;
+				dst[d] = dst[d + 1] = dst[d + 2] = on ? 255 : 0; dst[d + 3] = 255;
+			}
+		}
+		g.putImageData(px, 0, 0);
+	} else return null;
+	const type = alpha ? "image/png" : "image/jpeg";
+	const blob = await new Promise<Blob | null>((r) => c.toBlob(r, type, 0.9));
+	return blob ? { data: await blob.arrayBuffer(), ext: alpha ? "png" : "jpg" } : null;
 }
 
 const BULLET = /^\s*([•●▪◦‣∙·○■□➢►–-]|\*)\s+/;
@@ -84,16 +159,18 @@ function lineText(l: Line): string {
 function toMarkdown(lines: Line[]): string {
 	if (!lines.length) return "";
 	// the usual text size, counted by how much text uses it
+	if (!lines.some((l) => !l.image)) return lines.map((l) => `![[${l.image}]]`).join("\n\n");
 	const counts = new Map<number, number>();
 	for (const l of lines) for (const r of l.runs) counts.set(r.size, (counts.get(r.size) ?? 0) + r.text.length);
 	const body = [...counts.entries()].sort((p, q) => q[1] - p[1])[0][0];
-	const left = Math.min(...lines.filter((l) => l.size <= body * 1.05).map((l) => l.x));
+	const left = Math.min(...lines.filter((l) => !l.image && l.size <= body * 1.05).map((l) => l.x));
 	const blocks: string[] = [];
 	let para = "";
 	let prev: Line | null = null;
 	const flush = () => { if (para) blocks.push(para); para = ""; };
 
 	for (const l of lines) {
+		if (l.image) { flush(); blocks.push(`![[${l.image}]]`); prev = null; continue; }
 		let text = lineText(l);
 		if (!text) continue;
 		const plain = text.replace(/\*/g, "");
@@ -146,7 +223,18 @@ export async function noteFromPdf(app: App, pdf: TFile, folder: string, style: P
 	if (style === "embed") body = `![[${pdf.path}]]\n`;
 	else {
 		let md = "";
-		try { md = await pdfMarkdown(await app.vault.readBinary(pdf)); } catch (e) { console.error(e); }
+		let count = 0;
+		const seen = new Map<string, string>(); // the same picture (a logo on every page) is saved once
+		const saveImage: SaveImage = async (data, ext) => {
+			const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", data))).map((b) => b.toString(16).padStart(2, "0")).join("");
+			const known = seen.get(hash);
+			if (known) return known;
+			const p = await app.fileManager.getAvailablePathForAttachment(`${pdf.basename} picture ${++count}.${ext}`, notePath);
+			const path = (await app.vault.createBinary(p, data)).path;
+			seen.set(hash, path);
+			return path;
+		};
+		try { md = await pdfMarkdown(await app.vault.readBinary(pdf), saveImage); } catch (e) { console.error(e); }
 		const link = `\n\n---\nFrom [[${pdf.path}|${pdf.name}]]\n`;
 		body = md ? md + link : `_This PDF has no text that can be copied. It might be a scanned picture._\n\n![[${pdf.path}]]\n`;
 	}
