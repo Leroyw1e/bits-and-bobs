@@ -77,3 +77,9 @@ export function operatorFor(line: string, c: string): { insert: string; remove: 
 	if (!ok) return null;
 	return { insert: c === "*" ? "×" : "÷", remove: 0 };
 }
+
+/** inside a [[link]], a [link](url) or a web address, words are left as they are */
+export function piBlocked(line: string): boolean {
+	if (line.lastIndexOf("[[") > line.lastIndexOf("]]")) return true;
+	return /\]\([^)]*$/.test(line) || /\b[a-z][a-z0-9+.-]*:\/\/\S*$/i.test(line) || /(^|\s)#\S*$/.test(line);
+}

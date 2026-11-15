@@ -5,7 +5,7 @@ import { MATH_TOOLS, MathItem, MathPalette, MathSuggest, MathTool, insertInEdito
 import { Board } from "./board";
 import { BitsSettings, BitsSettingTab, DEFAULT_SETTINGS } from "./settings";
 import { SuperTyper } from "./superscript";
-import { operatorFor, rewriteTyping } from "./typing";
+import { operatorFor, piBlocked, rewriteTyping } from "./typing";
 import { solveLine } from "./autosolve";
 import { convertUnits } from "./units";
 import { ghostExtension, setGhost } from "./ghost";
@@ -283,7 +283,15 @@ export default class BitsAndBobs extends Plugin {
 	/** the last × or ÷ made from * or /, so Backspace can turn it back */
 	private lastOp: { line: number; ch: number; sym: string; orig: string } | null = null;
 
+	/** where a π was deleted: typing pi there again keeps it as plain "pi" */
+	private noPi: { line: number; ch: number } | null = null;
+
 	private onTypingKey(e: KeyboardEvent) {
+		if (e.key === "Backspace" && !e.metaKey && !e.altKey && !e.ctrlKey && (e.target as HTMLElement | null)?.closest?.(".cm-content")) {
+			const ed = this.app.workspace.activeEditor?.editor;
+			const at = ed?.getCursor();
+			if (ed && at && !ed.somethingSelected() && at.ch > 0 && ed.getLine(at.line).charAt(at.ch - 1) === "π") this.noPi = { line: at.line, ch: at.ch - 1 };
+		}
 		const op = this.lastOp;
 		if (op && !["Shift", "Alt", "CapsLock", "Meta", "Control"].includes(e.key)) {
 			this.lastOp = null;
@@ -311,12 +319,33 @@ export default class BitsAndBobs extends Plugin {
 		const wantsSolve = st.autoSolve && c === "=";
 		const wantsRewrite = st.typeShortcuts && /[ )=>\-]/.test(c);
 		const wantsOp = st.realOperators && (c === "*" || c === "/");
-		if (!wantsSuper && !wantsSolve && !wantsRewrite && !wantsOp) return;
+		const wantsPi = st.typePi && !/[A-Za-z_]/.test(c) && !this.superTyper.active;
+		if (!wantsSuper && !wantsSolve && !wantsRewrite && !wantsOp && !wantsPi) return;
 		const editor = this.app.workspace.activeEditor?.editor;
 		if (!editor || editor.somethingSelected()) { this.superTyper.reset(); return; }
 		const cur = editor.getCursor();
 		const line = editor.getLine(cur.line).slice(0, cur.ch);
 		const skip = () => insideMath(editor.getRange({ line: 0, ch: 0 }, cur)) || this.inCode(editor, cur);
+
+		// "pi" on its own becomes π once the next character is typed (so "pie" and "spin" are left alone)
+		if (wantsPi && /(?<![A-Za-z_\\])pi$/.test(line) && !this.inCode(editor, cur) && !piBlocked(line) && !(this.noPi && this.noPi.line === cur.line && this.noPi.ch === cur.ch - 2)) {
+			e.preventDefault(); e.stopPropagation();
+			const math = insideMath(editor.getRange({ line: 0, ch: 0 }, cur));
+			const sym = math ? "\\pi " : "π";
+			editor.replaceRange(sym, { line: cur.line, ch: cur.ch - 2 }, cur);
+			editor.setCursor({ line: cur.line, ch: cur.ch - 2 + sym.length });
+			// now type the character itself, letting the other rules (× ÷, =, fractions) see it
+			if (math && c === " ") return;
+			let taken = false;
+			this.onBeforeInput({ inputType: "insertText", data: c, target: e.target, preventDefault: () => (taken = true), stopPropagation: () => {} } as unknown as InputEvent);
+			if (!taken) {
+				const at = editor.getCursor();
+				// step over a bracket Obsidian already closed, instead of adding a second one
+				if (/[)\]}]/.test(c) && editor.getLine(at.line).charAt(at.ch) === c) editor.setCursor({ line: at.line, ch: at.ch + 1 });
+				else editor.replaceSelection(c);
+			}
+			return;
+		}
 
 		if (wantsSuper) {
 			// only a ^ stuck to a number, letter or bracket (not a block id or a footnote)

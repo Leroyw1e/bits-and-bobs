@@ -51,6 +51,7 @@ export interface BitsSettings {
 	autoSolveGhost: boolean;
 	typeShortcuts: boolean;
 	realOperators: boolean;
+	typePi: boolean;
 	symbolsSidebar: boolean;
 	// other
 	homeButtons: boolean;
@@ -63,7 +64,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	fingerDraws: true, pencilOnlyAfterPen: true, pressure: true, penSize: 4, defaultBg: "grid", canvasDraw: true,
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
-	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, symbolsSidebar: true,
+	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
 	homeButtons: true, newFileFolder: "",
 };
 
@@ -101,6 +102,7 @@ export class BitsSettingTab extends PluginSettingTab {
 		toggle("autoSolve", "Auto solve", "In a note, type a sum and then =, for example 12*(3+4)=, and the answer appears after it. Also converts units: 5 km = gives miles.");
 		toggle("autoSolveGhost", "Show the answer first, press Tab to use it", "Instead of writing the answer straight away, auto solve shows it faded after the = and you press Tab to keep it. Keep typing to ignore it.");
 		toggle("realOperators", "Type * and / for × and ÷", "In a note, 3*4 becomes 3×4 and 8/2 becomes 8÷2 as you type. Press Backspace straight after to get the plain * or / back. Links, web addresses and dates are left alone.");
+		toggle("typePi", "Type pi for π", "In a note, pi on its own becomes π (inside maths it becomes \\pi). Words like pie and spin are left alone. If you delete a π and type pi again in the same place, it stays as pi.");
 		toggle("typeShortcuts", "Type 2/4 for a fraction", "In a note, 2/4 followed by a space becomes a fraction, sqrt(16) becomes a square root, and <= >= != +- -> become ≤ ≥ ≠ ± →. Letters such as alpha still use the symbols menu.");
 		toggle("symbolsSidebar", "Show the symbols menu in the left sidebar", "When off, the symbols menu opens as a pop-up instead.");
 		toggle("statusBar", "Maths buttons in the status bar", "The row of buttons at the bottom of the window on desktop.", () => this.plugin.setupStatusBar());
