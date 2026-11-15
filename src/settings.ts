@@ -2,6 +2,7 @@ import { App, Platform, PluginSettingTab, Setting } from "obsidian";
 import type BitsAndBobs from "./main";
 import { MATH_TOOLS, shortcutLabel } from "./math";
 import type { Bg } from "./board";
+import type { PdfNoteStyle } from "./pdfnote";
 
 export interface BitsSettings {
 	// features (changing these reloads the plugin)
@@ -55,6 +56,8 @@ export interface BitsSettings {
 	symbolsSidebar: boolean;
 	// other
 	homeButtons: boolean;
+	pdfNotes: boolean;
+	pdfNoteStyle: PdfNoteStyle;
 	newFileFolder: string;
 }
 
@@ -65,7 +68,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, newFileFolder: "",
+	homeButtons: true, pdfNotes: true, pdfNoteStyle: "text", newFileFolder: "",
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];
@@ -144,6 +147,11 @@ export class BitsSettingTab extends PluginSettingTab {
 		toggle("sheetFill", "Drag to fill", "A small square on the selection that you drag to continue numbers, dates like Mon and Tue, and formulas.");
 		toggle("sheetCharts", "Charts", "Make bar, line, pie and scatter charts from cells, shown next to the spreadsheet.");
 		toggle("sheetSuggest", "Suggest functions", "Typing =SU shows SUM and SUMSQ. Press Tab or Enter to pick one.");
+
+		new Setting(containerEl).setName("PDFs").setHeading();
+		toggle("pdfNotes", "Drop a PDF on the file list to make a note", "Dragging a PDF from outside Obsidian onto the file list saves it and makes a new note from it. You can also right-click a PDF, or use the command Make a note from a PDF.");
+		new Setting(containerEl).setName("What goes in the note")
+			.addDropdown((d) => d.addOptions({ text: "The PDF's text (you can edit and search it)", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
 
 		new Setting(containerEl).setName("Other plugins").setHeading();
 		toggle("homeButtons", "Buttons on the Home + AI home screen", "If the Home + AI plugin is installed, add new board, slides and spreadsheet buttons to its home screen.", () => this.plugin.setupHomeButtons());

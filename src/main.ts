@@ -16,6 +16,7 @@ import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
 import { openChartDialog, specToData } from "./chartdialog";
 import { renderChart, svgToPng } from "./charts";
+import { PdfPicker, dropFolder, noPdfs, noteFromDroppedPdf, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
 const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt", "subscript", "greek"];
@@ -113,6 +114,16 @@ export default class BitsAndBobs extends Plugin {
 		this.registerDomEvent(activeDocument, "beforeinput", (e) => this.onBeforeInput(e), { capture: true });
 		this.registerDomEvent(activeDocument, "keydown", (e) => this.onTypingKey(e), { capture: true });
 		this.registerDomEvent(activeDocument, "pointerdown", () => this.superTyper.reset(), { capture: true });
+		// a PDF dropped onto the file list becomes a note
+		this.registerDomEvent(activeDocument, "drop", (e) => this.onFileListDrop(e), { capture: true });
+		this.addCommand({
+			id: "note-from-pdf", name: "Make a note from a PDF", icon: "file-text",
+			callback: () => { if (!noPdfs(this.app)) new PdfPicker(this.app, (f) => { void this.makePdfNote(f); }).open(); },
+		});
+		this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
+			if (!(file instanceof TFile) || file.extension.toLowerCase() !== "pdf" || !this.settings.pdfNotes) return;
+			menu.addItem((i) => i.setTitle("Make a note from this PDF").setIcon("file-text").onClick(() => { void this.makePdfNote(file); }));
+		}));
 		this.addCommand({ id: "undo", name: "Undo on board, slide or spreadsheet", icon: "undo-2", checkCallback: (check) => this.undoRedo(false, check) });
 		this.addCommand({ id: "redo", name: "Redo on board, slide or spreadsheet", icon: "redo-2", checkCallback: (check) => this.undoRedo(true, check) });
 
@@ -395,6 +406,46 @@ export default class BitsAndBobs extends Plugin {
 			}
 			e.preventDefault(); e.stopPropagation();
 			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
+		}
+	}
+
+	// ---------- PDFs into notes ----------
+	private onFileListDrop(e: DragEvent) {
+		if (!this.settings.pdfNotes) return;
+		const target = e.target as HTMLElement | null;
+		if (!target?.closest?.(".nav-files-container")) return;
+		const files = Array.from(e.dataTransfer?.files ?? []);
+		const pdfs = files.filter((f) => /\.pdf$/i.test(f.name) || f.type === "application/pdf");
+		if (!pdfs.length || pdfs.length !== files.length) return; // anything else is imported by Obsidian as usual
+		e.preventDefault(); e.stopPropagation();
+		const folder = dropFolder(this.app, target);
+		void (async () => {
+			for (const f of pdfs) {
+				const busy = new Notice(`Making a note from ${f.name}…`, 0);
+				try {
+					const note = await noteFromDroppedPdf(this.app, f, folder, this.settings.pdfNoteStyle);
+					busy.hide();
+					if (pdfs.length === 1) await this.app.workspace.getLeaf(false).openFile(note);
+					else new Notice(`Made ${note.basename}.`);
+				} catch (err) {
+					busy.hide();
+					console.error(err);
+					new Notice(`Couldn't make a note from ${f.name}.`);
+				}
+			}
+		})();
+	}
+
+	private async makePdfNote(pdf: TFile) {
+		const busy = new Notice(`Making a note from ${pdf.name}…`, 0);
+		try {
+			const note = await noteFromPdf(this.app, pdf, pdf.parent && pdf.parent.path !== "/" ? pdf.parent.path : "", this.settings.pdfNoteStyle);
+			busy.hide();
+			await this.app.workspace.getLeaf(false).openFile(note);
+		} catch (err) {
+			busy.hide();
+			console.error(err);
+			new Notice(`Couldn't make a note from ${pdf.name}.`);
 		}
 	}
 

@@ -48,6 +48,12 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Fractions without braces**: the fraction button opens a small box with a top and a bottom. A number just before the cursor becomes the top, and a selected `3/4` turns into a fraction straight away.
 - Maths buttons in the status bar on desktop and in the toolbar above the keyboard on mobile.
 
+### PDFs into notes
+- Drag a PDF from Finder (or Files on iPad) onto the file list and it becomes a new note in that folder. The PDF is saved in your attachments folder.
+- The note gets the PDF's text, split by page, with a link back to the PDF. Scanned PDFs that have no copyable text show the PDF instead. In settings you can choose to always show the PDF itself.
+- Right-click a PDF already in your vault, or run **Make a note from a PDF**, to do the same.
+- Dropping anything else on the file list works as normal.
+
 ### Canvas and embeds
 - Run **Add a drawing card to this canvas** and draw straight onto the card.
 - Embed a board, deck or spreadsheet in a note with `![[file.mboard]]` to show it in place.
