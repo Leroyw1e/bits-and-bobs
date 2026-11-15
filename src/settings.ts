@@ -151,7 +151,7 @@ export class BitsSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("PDFs").setHeading();
 		toggle("pdfNotes", "Drop a PDF on the file list to make a note", "Dragging a PDF from outside Obsidian onto the file list saves it and makes a new note from it. You can also right-click a PDF, or use the command Make a note from a PDF.");
 		new Setting(containerEl).setName("What goes in the note")
-			.addDropdown((d) => d.addOptions({ text: "The PDF's text (you can edit and search it)", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
+			.addDropdown((d) => d.addOptions({ text: "The PDF's text, keeping its headings, bold, italics and lists", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
 
 		new Setting(containerEl).setName("Other plugins").setHeading();
 		toggle("homeButtons", "Buttons on the Home + AI home screen", "If the Home + AI plugin is installed, add new board, slides and spreadsheet buttons to its home screen.", () => this.plugin.setupHomeButtons());

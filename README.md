@@ -50,7 +50,7 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 
 ### PDFs into notes
 - Drag a PDF from Finder (or Files on iPad) onto the file list and it becomes a new note in that folder. The PDF is saved in your attachments folder.
-- The note gets the PDF's text, split by page, with a link back to the PDF. Scanned PDFs that have no copyable text show the PDF instead. In settings you can choose to always show the PDF itself.
+- The note gets the PDF's text with its look kept: big text becomes headings, bold and italic stay, bullets and numbered lists become lists, and paragraphs run on across pages. Page numbers are left out, and there's a link back to the PDF at the end. Scanned PDFs that have no copyable text show the PDF instead. In settings you can choose to always show the PDF itself.
 - Right-click a PDF already in your vault, or run **Make a note from a PDF**, to do the same.
 - Dropping anything else on the file list works as normal.
 

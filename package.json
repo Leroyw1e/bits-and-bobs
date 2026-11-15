@@ -1,6 +1,6 @@
 {
   "name": "bits-and-bobs",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Obsidian plugin: drawing boards, slides, Excel spreadsheets and maths tools.",
   "main": "main.js",
   "scripts": {

@@ -1,43 +1,141 @@
 import { App, FuzzySuggestModal, Notice, TFile, TFolder, loadPdfJs, normalizePath } from "obsidian";
 
 /** The small part of pdf.js (bundled with Obsidian) that is used here. */
-interface PdfTextItem { str?: string; hasEOL?: boolean }
-interface PdfPage { getTextContent(): Promise<{ items: PdfTextItem[] }> }
+interface PdfTextItem { str?: string; hasEOL?: boolean; transform?: number[]; width?: number; height?: number; fontName?: string }
+interface PdfPage {
+	getTextContent(): Promise<{ items: PdfTextItem[] }>;
+	getOperatorList?(): Promise<unknown>;
+	commonObjs?: { has?(id: string): boolean; get(id: string): unknown };
+}
 interface PdfDoc { numPages: number; getPage(n: number): Promise<PdfPage>; destroy?(): Promise<void> }
 interface PdfJs { getDocument(src: { data: Uint8Array }): { promise: Promise<PdfDoc> } }
 
 export type PdfNoteStyle = "text" | "embed";
 
-/** All the text in a PDF, one block per page. Empty if the PDF is only pictures (a scan). */
-export async function pdfText(data: ArrayBuffer): Promise<string[]> {
+interface Run { text: string; x: number; end: number; size: number; bold: boolean; italic: boolean }
+interface Line { y: number; x: number; size: number; runs: Run[]; page: number; first: boolean; last: boolean }
+
+/**
+ * The PDF's text as Markdown, keeping its look: big text becomes headings, bold and italic stay,
+ * bullets and numbered lists become lists, and lines broken only to fit the page are joined into paragraphs.
+ * Page breaks and page numbers are left out. Empty if the PDF is only pictures (a scan).
+ */
+export async function pdfMarkdown(data: ArrayBuffer): Promise<string> {
 	const pdfjs = (await loadPdfJs()) as PdfJs;
 	const doc = await pdfjs.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
-	const pages: string[] = [];
+	const lines: Line[] = [];
 	try {
 		for (let n = 1; n <= doc.numPages; n++) {
 			const page = await doc.getPage(n);
 			const { items } = await page.getTextContent();
-			let text = "";
+			// the real font names (like "Helvetica-Bold") only appear once the page's fonts are loaded
+			try { await page.getOperatorList?.(); } catch { /* fall back to plain text */ }
+			const fontName = (id: string) => {
+				try { const f = page.commonObjs?.get(id) as { name?: string } | undefined; return f?.name ?? ""; } catch { return ""; }
+			};
+			const pageLines: Line[] = [];
 			for (const it of items) {
-				text += it.str ?? "";
-				if (it.hasEOL) text += "\n";
+				const str = it.str ?? "";
+				if (!str.trim() || !it.transform) continue;
+				const [a, b, , d, x, y] = it.transform;
+				const size = Math.round(Math.hypot(a, b) || Math.abs(d) || it.height || 10);
+				const name = fontName(it.fontName ?? "");
+				const run: Run = { text: str, x, end: x + (it.width ?? str.length * size * 0.5), size, bold: /bold|black|heavy|semibold|demi/i.test(name), italic: /italic|oblique/i.test(name) };
+				const line = pageLines.find((l) => Math.abs(l.y - y) < Math.max(2, size * 0.4));
+				if (line) { line.runs.push(run); line.size = Math.max(line.size, size); }
+				else pageLines.push({ y, x, size, runs: [run], page: n, first: false, last: false });
 			}
-			pages.push(tidy(text));
+			pageLines.sort((p, q) => q.y - p.y); // top of the page first
+			for (const l of pageLines) { l.runs.sort((p, q) => p.x - q.x); l.x = l.runs[0].x; }
+			if (pageLines.length) { pageLines[0].first = true; pageLines[pageLines.length - 1].last = true; }
+			lines.push(...pageLines);
 		}
 	} finally {
 		await doc.destroy?.();
 	}
-	return pages;
+	return toMarkdown(lines);
 }
 
-/** joins lines that were only broken to fit the page, and keeps real paragraphs */
-function tidy(t: string): string {
-	return t
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/(\w)-\n(\w)/g, "$1$2") // hyphen at the end of a line
-		.replace(/([^\n.!?:;])\n(?=[a-z(])/g, "$1 ") // a sentence carrying on
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+const BULLET = /^\s*([•●▪◦‣∙·○■□➢►–-]|\*)\s+/;
+const NUMBERED = /^\s*(\(?\d{1,3}[.)]|\(?[a-z][.)])\s+/i;
+
+function lineText(l: Line): string {
+	let out = "", open: { bold: boolean; italic: boolean } = { bold: false, italic: false }, prev: Run | null = null;
+	const close = () => { if (open.italic) out += "*"; if (open.bold) out += "**"; open = { bold: false, italic: false }; };
+	for (const r of l.runs) {
+		const gap = prev ? r.x - prev.end : 0;
+		const space = prev && gap > r.size * 0.12 && !/\s$/.test(prev.text) && !/^\s/.test(r.text) ? " " : "";
+		if (r.bold !== open.bold || r.italic !== open.italic) {
+			close();
+			out = out.replace(/\s+$/, "");
+			out += space || (prev && /\s$/.test(prev.text) ? " " : "");
+			if (r.bold) out += "**";
+			if (r.italic) out += "*";
+			open = { bold: r.bold, italic: r.italic };
+			out += r.text.replace(/^\s+/, "");
+		} else out += space + r.text;
+		prev = r;
+	}
+	close();
+	return out.replace(/\*\*\s*\*\*/g, "").replace(/\s+/g, " ").trim();
+}
+
+function toMarkdown(lines: Line[]): string {
+	if (!lines.length) return "";
+	// the usual text size, counted by how much text uses it
+	const counts = new Map<number, number>();
+	for (const l of lines) for (const r of l.runs) counts.set(r.size, (counts.get(r.size) ?? 0) + r.text.length);
+	const body = [...counts.entries()].sort((p, q) => q[1] - p[1])[0][0];
+	const left = Math.min(...lines.filter((l) => l.size <= body * 1.05).map((l) => l.x));
+	const blocks: string[] = [];
+	let para = "";
+	let prev: Line | null = null;
+	const flush = () => { if (para) blocks.push(para); para = ""; };
+
+	for (const l of lines) {
+		let text = lineText(l);
+		if (!text) continue;
+		const plain = text.replace(/\*/g, "");
+		// page numbers and "Page 3 of 9" at the top or bottom of a page
+		if ((l.first || l.last) && /^(page\s*)?\d{1,4}(\s*(of|\/)\s*\d{1,4})?$/i.test(plain)) continue;
+		const ratio = l.size / body;
+		const gap = prev && prev.page === l.page ? prev.y - l.y : 0;
+		const newBlock = !prev || prev.page !== l.page ? false : gap > Math.max(prev.size, l.size) * 1.6;
+
+		if (ratio >= 1.15 && plain.length < 120) {
+			flush();
+			const level = ratio >= 1.7 ? 1 : ratio >= 1.35 ? 2 : 3;
+			const heading = plain.replace(/\s+/g, " ").trim();
+			const lastBlock = blocks[blocks.length - 1];
+			// a heading that wraps onto a second line
+			if (prev && lastBlock?.startsWith("#".repeat(level) + " ") && Math.abs(prev.size - l.size) < 1 && !newBlock) blocks[blocks.length - 1] = `${lastBlock} ${heading}`;
+			else blocks.push(`${"#".repeat(level)} ${heading}`);
+			prev = l;
+			continue;
+		}
+		const indent = Math.max(0, Math.round((l.x - left) / (body * 1.8)));
+		const bullet = BULLET.exec(plain);
+		const numbered = !bullet ? NUMBERED.exec(plain) : null;
+		if (bullet || numbered) {
+			flush();
+			const marker = bullet ? "- " : (numbered![1].replace(/[()]/g, "").replace(/\)$/, ".").replace(/([^.])$/, "$1."));
+			text = text.replace(bullet ? /^(\**)\s*([•●▪◦‣∙·○■□➢►–-]|\*(?=\s))\s+/ : /^(\**)\s*\(?(\d{1,3}|[a-z])[.)]\s+/i, "$1");
+			para = "  ".repeat(Math.min(indent, 4)) + (bullet ? marker : marker + " ") + text;
+		} else if (para && !newBlock) {
+			// carry on the paragraph (or the list item that wrapped)
+			para = /[A-Za-z]-$/.test(para) ? para.slice(0, -1) + text : para + " " + text;
+		} else {
+			flush();
+			para = text;
+		}
+		prev = l;
+	}
+	flush();
+	// list items sit together; everything else gets a blank line between
+	const isItem = (b: string) => /^\s*(- |\d{1,3}\. |[a-z]\. )/i.test(b);
+	let out = "";
+	blocks.forEach((b, i) => { out += i === 0 ? b : (isItem(b) && isItem(blocks[i - 1]) && /^\s*- /.test(b) === /^\s*- /.test(blocks[i - 1]) ? "\n" : "\n\n") + b; });
+	return out.replace(/\*\*\*\*/g, "").trim();
 }
 
 /** Makes a note next to (or about) a PDF that is already in the vault. Returns the new note. */
@@ -46,12 +144,10 @@ export async function noteFromPdf(app: App, pdf: TFile, folder: string, style: P
 	let body: string;
 	if (style === "embed") body = `![[${pdf.path}]]\n`;
 	else {
-		let pages: string[] = [];
-		try { pages = await pdfText(await app.vault.readBinary(pdf)); } catch (e) { console.error(e); }
-		const text = pages.filter(Boolean);
-		const link = `Original PDF: [[${pdf.path}|${pdf.name}]]\n\n`;
-		if (!text.length) body = link + "_This PDF has no text that can be copied. It might be a scanned picture._\n\n" + `![[${pdf.path}]]\n`;
-		else body = link + (pages.length > 1 ? pages.map((p, i) => `## Page ${i + 1}\n\n${p || "_No text on this page._"}`).join("\n\n") : text[0]) + "\n";
+		let md = "";
+		try { md = await pdfMarkdown(await app.vault.readBinary(pdf)); } catch (e) { console.error(e); }
+		const link = `\n\n---\nFrom [[${pdf.path}|${pdf.name}]]\n`;
+		body = md ? md + link : `_This PDF has no text that can be copied. It might be a scanned picture._\n\n![[${pdf.path}]]\n`;
 	}
 	return app.vault.create(notePath, body);
 }
