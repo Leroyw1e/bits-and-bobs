@@ -3,6 +3,7 @@ import type BitsAndBobs from "./main";
 import { MATH_TOOLS, shortcutLabel } from "./math";
 import type { Bg } from "./board";
 import type { PdfNoteStyle } from "./pdfnote";
+import { TagAllModal } from "./foldertags";
 
 export interface BitsSettings {
 	// features (changing these reloads the plugin)
@@ -58,6 +59,8 @@ export interface BitsSettings {
 	homeButtons: boolean;
 	pdfNotes: boolean;
 	photoNotes: boolean;
+	folderTags: boolean;
+	imageTools: boolean;
 	pdfNoteStyle: PdfNoteStyle;
 	newFileFolder: string;
 }
@@ -69,7 +72,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, pdfNotes: true, photoNotes: true, pdfNoteStyle: "text", newFileFolder: "",
+	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, imageTools: true, pdfNoteStyle: "text", newFileFolder: "",
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];
@@ -154,6 +157,12 @@ export class BitsSettingTab extends PluginSettingTab {
 		toggle("photoNotes", "Drop photos on the file list to make a note", "Dragging photos from outside Obsidian onto the file list saves them and makes one note showing them all. iPhone HEIC photos are turned into JPEGs so they show everywhere.");
 		new Setting(containerEl).setName("What goes in a note made from a PDF")
 			.addDropdown((d) => d.addOptions({ text: "The PDF's text, keeping its headings, bold, italics and lists", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl).setName("Notes").setHeading();
+		toggle("imageTools", "Move pictures and wrap text around them", "In Live Preview, click a picture for buttons to wrap text on either side, centre it, or change its size. Drag a picture to move it to another line.");
+		toggle("folderTags", "Tag notes with their folders", "New notes, and notes you move, get tags for the folders they're in, such as #school-work and #maths. When a note moves, the old folder tags come off. Other tags are left alone.");
+		new Setting(containerEl).setName("Tag all your notes now").setDesc("Adds folder tags to every note already in the vault. You'll be asked first.")
+			.addButton((b) => b.setButtonText("Tag all notes").onClick(() => new TagAllModal(this.app).open()));
 
 		new Setting(containerEl).setName("Other plugins").setHeading();
 		toggle("homeButtons", "Buttons on the Home + AI home screen", "If the Home + AI plugin is installed, add new board, slides and spreadsheet buttons to its home screen.", () => this.plugin.setupHomeButtons());

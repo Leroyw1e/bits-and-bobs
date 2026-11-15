@@ -49,11 +49,15 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Maths buttons in the status bar on desktop and in the toolbar above the keyboard on mobile.
 
 ### PDFs and photos into notes
-- Drag a PDF from Finder (or Files on iPad) onto the file list and it becomes a new note in that folder. The PDF is saved in your attachments folder.
+- Drag a PDF from Finder (or Files on iPad) onto the file list and it becomes a new note in that folder. Only the note is made: the PDF isn't kept, unless you've chosen to show the PDF itself or it had nothing in it to copy.
 - The note gets the PDF's text with its look kept: big text becomes headings, bold and italic stay, bullets and numbered lists become lists, and paragraphs run on across pages. Page numbers are left out, and there's a link back to the PDF at the end. Pictures in the PDF come into the note too, in the same place among the text (a picture used on every page, like a logo, is saved once). A scanned PDF, which is only pictures, comes in as its page pictures. In settings you can choose to always show the PDF itself.
 - Right-click a PDF already in your vault, or run **Make a note from a PDF**, to do the same.
 - Drop photos on the file list and they become one new note showing them all (named after the photo, or **Photos** and the date for several). iPhone HEIC photos are turned into JPEGs so they show on every device.
 - Dropping anything else on the file list works as normal.
+
+### Pictures and tags in notes
+- **Move pictures and wrap text around them**: in Live Preview, click a picture for buttons to put it on the left or right with text flowing beside it, centre it, or make it bigger or smaller. Drag a picture to move it to another line. The choice is saved in the link (for example `![[photo.jpg|left|300]]`), so it looks the same in Reading view.
+- **Folder tags**: new notes and notes you move get tags for the folders they're in. A note in `School work/Maths` gets `#school-work` and `#maths`, and when it moves the old folder tags come off. Run **Tag all notes with their folders** to add them to the notes you already have (it asks first).
 
 ### Canvas and embeds
 - Run **Add a drawing card to this canvas** and draw straight onto the card.

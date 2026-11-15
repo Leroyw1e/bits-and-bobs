@@ -395,3 +395,15 @@ body.ms-resizing-row, body.ms-resizing-row * { cursor: row-resize !important; }
 .ms-laser.is-on { display: block; }
 col.ms-rowhead-col { width: 44px; }
 .ms-svg .is-filled { fill-opacity: .15; }
+
+/* ---- pictures in notes: wrap text around them, drag to move ---- */
+.internal-embed.image-embed[alt~="left"], .markdown-rendered img[alt~="left"] { float: left; margin: 4px 18px 8px 0; max-width: 55%; }
+.internal-embed.image-embed[alt~="right"], .markdown-rendered img[alt~="right"] { float: right; margin: 4px 0 8px 18px; max-width: 55%; }
+.internal-embed.image-embed[alt~="center"], .markdown-rendered img[alt~="center"] { display: block; margin-left: auto; margin-right: auto; text-align: center; }
+.markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered hr { clear: both; }
+.markdown-source-view.is-live-preview .internal-embed.image-embed { cursor: grab; }
+.bb-img-dragging { opacity: .45; }
+.bb-img-drop { position: fixed; height: 3px; border-radius: 2px; background: var(--interactive-accent); z-index: var(--layer-popover); pointer-events: none; }
+.bb-img-bar { position: fixed; z-index: var(--layer-popover); display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: var(--shadow-s); }
+.bb-img-bar .is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+.bb-img-tip { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: 0 6px; white-space: nowrap; }

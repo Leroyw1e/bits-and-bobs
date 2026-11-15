@@ -16,6 +16,8 @@ import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
 import { openChartDialog, specToData } from "./chartdialog";
 import { renderChart, svgToPng } from "./charts";
+import { TagAllModal, syncFolderTags } from "./foldertags";
+import { setupImageTools } from "./imagetools";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
@@ -114,6 +116,20 @@ export default class BitsAndBobs extends Plugin {
 		this.registerDomEvent(activeDocument, "beforeinput", (e) => this.onBeforeInput(e), { capture: true });
 		this.registerDomEvent(activeDocument, "keydown", (e) => this.onTypingKey(e), { capture: true });
 		this.registerDomEvent(activeDocument, "pointerdown", () => this.superTyper.reset(), { capture: true });
+		// pictures in notes: wrap text around them and drag them to move
+		setupImageTools(this, () => this.settings.imageTools);
+		// tags for the folders a note is in, kept up to date when notes are made or moved
+		this.addCommand({ id: "tag-all-with-folders", name: "Tag all notes with their folders", icon: "tags", callback: () => new TagAllModal(this.app).open() });
+		this.app.workspace.onLayoutReady(() => {
+			this.registerEvent(this.app.vault.on("create", (f) => {
+				if (this.settings.folderTags && f instanceof TFile && f.extension === "md") window.setTimeout(() => { void syncFolderTags(this.app, f).catch((e) => console.error(e)); }, 300);
+			}));
+			this.registerEvent(this.app.vault.on("rename", (f, oldPath) => {
+				if (!this.settings.folderTags || !(f instanceof TFile) || f.extension !== "md") return;
+				if (oldPath.split("/").slice(0, -1).join("/") === (f.parent?.path === "/" ? "" : f.parent?.path ?? "")) return; // renamed, not moved
+				void syncFolderTags(this.app, f, oldPath).catch((e) => console.error(e));
+			}));
+		});
 		// a PDF dropped onto the file list becomes a note
 		this.registerDomEvent(activeDocument, "drop", (e) => this.onFileListDrop(e), { capture: true });
 		this.addCommand({

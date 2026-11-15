@@ -216,39 +216,48 @@ function toMarkdown(lines: Line[]): string {
 	return out.replace(/\*\*\*\*/g, "").trim();
 }
 
-/** Makes a note next to (or about) a PDF that is already in the vault. Returns the new note. */
-export async function noteFromPdf(app: App, pdf: TFile, folder: string, style: PdfNoteStyle): Promise<TFile> {
-	const notePath = availablePath(app, folder, pdf.basename, "md");
-	let body: string;
-	if (style === "embed") body = `![[${pdf.path}]]\n`;
-	else {
-		let md = "";
-		let count = 0;
-		const seen = new Map<string, string>(); // the same picture (a logo on every page) is saved once
-		const saveImage: SaveImage = async (data, ext) => {
-			const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", data))).map((b) => b.toString(16).padStart(2, "0")).join("");
-			const known = seen.get(hash);
-			if (known) return known;
-			const p = await app.fileManager.getAvailablePathForAttachment(`${pdf.basename} picture ${++count}.${ext}`, notePath);
-			const path = (await app.vault.createBinary(p, data)).path;
-			seen.set(hash, path);
-			return path;
-		};
-		try { md = await pdfMarkdown(await app.vault.readBinary(pdf), saveImage); } catch (e) { console.error(e); }
-		const link = `\n\n---\nFrom [[${pdf.path}|${pdf.name}]]\n`;
-		body = md ? md + link : `_This PDF has no text that can be copied. It might be a scanned picture._\n\n![[${pdf.path}]]\n`;
-	}
-	return app.vault.create(notePath, body);
+/**
+ * The note's text for a PDF: its words (keeping the look) and pictures.
+ * `pdfPath` is the PDF in the vault if there is one; it's linked at the end.
+ * Returns null if the PDF has no text or pictures to copy (a scan saved without its pictures, say).
+ */
+async function pdfNoteBody(app: App, data: ArrayBuffer, baseName: string, notePath: string, pdfPath: string | null): Promise<string | null> {
+	let count = 0;
+	const seen = new Map<string, string>(); // the same picture (a logo on every page) is saved once
+	const saveImage: SaveImage = async (img, ext) => {
+		const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-1", img))).map((b) => b.toString(16).padStart(2, "0")).join("");
+		const known = seen.get(hash);
+		if (known) return known;
+		const p = await app.fileManager.getAvailablePathForAttachment(`${baseName} picture ${++count}.${ext}`, notePath);
+		const path = (await app.vault.createBinary(p, img)).path;
+		seen.set(hash, path);
+		return path;
+	};
+	let md = "";
+	try { md = await pdfMarkdown(data, saveImage); } catch (e) { console.error(e); }
+	if (!md) return null;
+	return md + (pdfPath ? `\n\n---\nFrom [[${pdfPath}|${pdfPath.split("/").pop()}]]\n` : "\n");
 }
 
-/** A PDF dropped from outside Obsidian: saves it, then makes the note in the folder it was dropped on. */
+/** Makes a note from a PDF that is already in the vault (the PDF is left where it is). */
+export async function noteFromPdf(app: App, pdf: TFile, folder: string, style: PdfNoteStyle): Promise<TFile> {
+	const notePath = availablePath(app, folder, pdf.basename, "md");
+	const body = style === "embed" ? null : await pdfNoteBody(app, await app.vault.readBinary(pdf), pdf.basename, notePath, pdf.path);
+	return app.vault.create(notePath, body ?? (style === "embed" ? "" : "_This PDF has no text or pictures that can be copied._\n\n") + `![[${pdf.path}]]\n`);
+}
+
+/**
+ * A PDF dropped from outside Obsidian becomes just a note, in the folder it was dropped on.
+ * The PDF itself is only kept when the note shows it, or when there was nothing in it to copy.
+ */
 export async function noteFromDroppedPdf(app: App, file: File, folder: string, style: PdfNoteStyle): Promise<TFile> {
 	const base = file.name.replace(/\.pdf$/i, "") || "PDF";
 	const data = await file.arrayBuffer();
-	const noteGuess = normalizePath(`${folder ? folder + "/" : ""}${base}.md`);
-	const pdfPath = await app.fileManager.getAvailablePathForAttachment(`${base}.pdf`, noteGuess);
-	const pdf = await app.vault.createBinary(pdfPath, data);
-	return noteFromPdf(app, pdf, folder, style);
+	const notePath = availablePath(app, folder, base, "md");
+	const body = style === "embed" ? null : await pdfNoteBody(app, data, base, notePath, null);
+	if (body) return app.vault.create(notePath, body);
+	const pdf = await app.vault.createBinary(await app.fileManager.getAvailablePathForAttachment(`${base}.pdf`, notePath), data);
+	return app.vault.create(notePath, (style === "embed" ? "" : "_This PDF has no text or pictures that can be copied, so the PDF is shown instead._\n\n") + `![[${pdf.path}]]\n`);
 }
 
 export const isPhoto = (f: File) => f.type.startsWith("image/") || isHeic(f.name.split(".").pop() ?? "", f.type);
