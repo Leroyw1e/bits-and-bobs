@@ -5,6 +5,7 @@ import { MATH_TOOLS, MathItem, MathPalette, MathSuggest, MathTool, insertInEdito
 import { Board } from "./board";
 import { BitsSettings, BitsSettingTab, DEFAULT_SETTINGS } from "./settings";
 import { SuperTyper } from "./superscript";
+import { rewriteTyping } from "./typing";
 import { solveLine } from "./autosolve";
 import { SymbolsView, VIEW_SYMBOLS } from "./symbolsview";
 import { fractionInEditor, fractionInField, fractionNewBox } from "./fraction";
@@ -288,7 +289,8 @@ export default class BitsAndBobs extends Plugin {
 		const c = e.data;
 		const wantsSuper = st.superscriptTyping && (this.superTyper.active || c === "^");
 		const wantsSolve = st.autoSolve && c === "=";
-		if (!wantsSuper && !wantsSolve) return;
+		const wantsRewrite = st.typeShortcuts && /[ )=>\-]/.test(c);
+		if (!wantsSuper && !wantsSolve && !wantsRewrite) return;
 		const editor = this.app.workspace.activeEditor?.editor;
 		if (!editor || editor.somethingSelected()) { this.superTyper.reset(); return; }
 		const cur = editor.getCursor();
@@ -302,6 +304,17 @@ export default class BitsAndBobs extends Plugin {
 			if (r) {
 				if (r.swallow) { e.preventDefault(); e.stopPropagation(); }
 				if (r.insert) editor.replaceSelection(r.insert);
+				return;
+			}
+		}
+		if (wantsRewrite && !this.superTyper.active && !this.inCode(editor, cur)) {
+			const rw = rewriteTyping(line, c, insideMath(editor.getRange({ line: 0, ch: 0 }, cur)));
+			if (rw) {
+				e.preventDefault(); e.stopPropagation();
+				// Obsidian closes brackets as you type, so the ")" we are replacing may already be there
+				const autoClosed = c === ")" && editor.getLine(cur.line).charAt(cur.ch) === ")";
+				editor.replaceRange(rw.insert, { line: cur.line, ch: cur.ch - rw.remove }, autoClosed ? { line: cur.line, ch: cur.ch + 1 } : cur);
+				editor.setCursor({ line: cur.line, ch: cur.ch - rw.remove + rw.insert.length });
 				return;
 			}
 		}

@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import type BitsAndBobs from "./main";
 import { Board, El, TextEl, uid } from "./board";
+import type { Theme } from "./themes";
 
 // Slides are 1600 × 900
 const T = (x: number, y: number, w: number, text: string, fs: number, extra: Partial<TextEl> = {}): El =>
@@ -8,7 +9,7 @@ const T = (x: number, y: number, w: number, text: string, fs: number, extra: Par
 const title = (text = "## Slide title") => T(100, 60, 1400, text, 40);
 const box = (x: number, y: number, w: number, h: number, color = "ink"): El =>
 	({ id: uid(), type: "shape", kind: "rect", x, y, w, h, color, size: 3 });
-const line = (x: number, y: number, w: number, color = "#1971c2"): El =>
+const line = (x: number, y: number, w: number, color = "accent"): El =>
 	({ id: uid(), type: "shape", kind: "line", x, y, w, h: 0, color, size: 6 });
 
 export interface Layout { id: string; name: string; make: () => El[] }
@@ -30,14 +31,14 @@ export const LAYOUTS: Layout[] = [
 	] },
 	{ id: "compare", name: "Compare", make: () => [
 		title("## This vs that"),
-		box(100, 190, 660, 620, "#1971c2"),
-		box(840, 190, 660, 620, "#e03131"),
+		box(100, 190, 660, 620, "accent"),
+		box(840, 190, 660, 620, "accent2"),
 		T(130, 215, 600, "### Option A\n- Pro\n- Con", 32),
 		T(870, 215, 600, "### Option B\n- Pro\n- Con", 32),
 	] },
 	{ id: "section", name: "Section header", make: () => [
 		T(150, 340, 1300, "# Section name", 64),
-		line(150, 470, 300, "#e03131"),
+		line(150, 470, 300, "accent2"),
 		T(150, 500, 1300, "What this part is about", 30),
 	] },
 	{ id: "equation", name: "Equation", make: () => [
@@ -70,7 +71,7 @@ export const LAYOUTS: Layout[] = [
 
 export class LayoutPicker extends Modal {
 	private boards: Board[] = [];
-	constructor(app: App, private plugin: BitsAndBobs, private sourcePath: string, private pick: (l: Layout) => void) { super(app); }
+	constructor(app: App, private plugin: BitsAndBobs, private sourcePath: string, private pick: (l: Layout) => void, private theme: Theme | null = null) { super(app); }
 	onOpen() {
 		this.modalEl.addClass("ms-layout-modal");
 		this.titleEl.setText("Choose a layout");
@@ -78,7 +79,7 @@ export class LayoutPicker extends Modal {
 		for (const l of LAYOUTS) {
 			const card = grid.createEl("button", { cls: "ms-layout-card" });
 			const prev = card.createDiv("ms-layout-preview");
-			const b = new Board(this.plugin, prev, { elements: l.make(), bg: "plain" }, { sourcePath: this.sourcePath, frame: { w: 1600, h: 900 }, readOnly: true });
+			const b = new Board(this.plugin, prev, { elements: l.make(), bg: "plain" }, { sourcePath: this.sourcePath, frame: { w: 1600, h: 900 }, readOnly: true, theme: this.theme });
 			b.load(); this.boards.push(b);
 			card.createDiv({ cls: "ms-layout-name", text: l.name });
 			card.onclick = () => { this.close(); this.pick(l); };

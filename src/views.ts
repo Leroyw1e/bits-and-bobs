@@ -2,6 +2,7 @@ import { Component, Menu, Notice, Platform, TextFileView, TFile, WorkspaceLeaf, 
 import type BitsAndBobs from "./main";
 import { Board, BoardDoc, El, StrokeEl, parseBoard, serializeBoard, strokePath, uid } from "./board";
 import { LAYOUTS, LayoutPicker } from "./layouts";
+import { FONTS, THEMES, themeFor, Theme } from "./themes";
 
 export const VIEW_BOARD = "math-studio-board";
 export const VIEW_SLIDES = "math-studio-slides";
@@ -38,14 +39,17 @@ export class BoardView extends TextFileView {
 }
 
 // ---------------- Slides ----------------
-export interface Slide { id: string; elements: El[]; bg?: BoardDoc["bg"]; notes?: string; layout?: string }
-export interface Deck { w: number; h: number; slides: Slide[] }
+export type Transition = "none" | "fade" | "slide" | "zoom" | "rise";
+export type Reveal = "bullets" | "objects";
+export interface Slide { id: string; elements: El[]; bg?: BoardDoc["bg"]; notes?: string; layout?: string; transition?: Transition; reveal?: Reveal }
+export interface Deck { w: number; h: number; slides: Slide[]; theme?: string; font?: string }
+const TRANSITIONS: [Transition, string][] = [["none", "None"], ["fade", "Fade"], ["slide", "Slide"], ["zoom", "Zoom"], ["rise", "Rise"]];
 
 export function parseDeck(data: string): Deck {
 	try {
 		const d = JSON.parse(data || "{}");
 		const slides: Slide[] = Array.isArray(d.slides) && d.slides.length ? d.slides : [newSlide("title")];
-		return { w: d.w || 1600, h: d.h || 900, slides };
+		return { w: d.w || 1600, h: d.h || 900, slides, theme: d.theme, font: d.font };
 	} catch {
 		return { w: 1600, h: 900, slides: [newSlide("title")] };
 	}
@@ -92,13 +96,17 @@ export class SlidesView extends TextFileView {
 		c.addClass("ms-view", "ms-slides");
 		const side = c.createDiv("ms-slide-side");
 		const sideBar = side.createDiv("ms-slide-sidebar-bar");
-		const mk = (parent: HTMLElement, icon: string, label: string, fn: () => void, text?: string) => {
+		const mk = (parent: HTMLElement, icon: string, label: string, fn: (e: MouseEvent) => void, text?: string) => {
 			const b = parent.createEl("button", { cls: "ms-tb-btn clickable-icon", attr: { "aria-label": label } });
 			setIcon(b, icon); if (text) b.createSpan({ cls: "ms-tb-text", text });
-			b.onclick = fn; return b;
+			b.onclick = (e) => fn(e); return b;
 		};
 		mk(sideBar, "plus", "New slide (pick a layout)", () => this.pickLayout((id) => this.addSlide(this.current, id)), "Slide");
 		mk(sideBar, "play", "Present (from this slide)", () => this.present(), "Present").addClass("mod-cta");
+		if (this.plugin.settings.slideEffects) {
+			mk(sideBar, "palette", "Theme: colours and fonts for the whole deck", (e) => this.themeMenu(e));
+			mk(sideBar, "sparkles", "Effects: transitions and showing things one click at a time", (e) => this.effectsMenu(e));
+		}
 		this.listEl = side.createDiv("ms-slide-list");
 		this.mainEl = c.createDiv("ms-slide-main");
 		const holder = this.mainEl.createDiv("ms-slide-board");
@@ -108,7 +116,8 @@ export class SlidesView extends TextFileView {
 		this.board = new Board(this.plugin, holder, { elements: [], bg: "plain" }, {
 			sourcePath: this.file?.path ?? "",
 			frame: { w: this.deck.w, h: this.deck.h },
-			onChange: (doc) => {
+				theme: this.theme(),
+				onChange: (doc) => {
 				const s = this.deck.slides[this.current];
 				s.elements = doc.elements; s.bg = doc.bg;
 				this.markDirty();
@@ -150,8 +159,8 @@ export class SlidesView extends TextFileView {
 			t.createDiv({ cls: "ms-thumb-num", text: String(i + 1) });
 			const box = t.createDiv("ms-thumb-box");
 			box.style.aspectRatio = `${this.deck.w} / ${this.deck.h}`;
-			const b = new Board(this.plugin, box, { elements: s.elements, bg: s.bg }, { sourcePath: this.file?.path ?? "", frame: { w: this.deck.w, h: this.deck.h }, readOnly: true });
-			this.addChild(b); this.thumbs.push(b);
+			const b = new Board(this.plugin, box, { elements: s.elements, bg: s.bg }, { sourcePath: this.file?.path ?? "", frame: { w: this.deck.w, h: this.deck.h }, readOnly: true, theme: this.theme() });
+				this.addChild(b); this.thumbs.push(b);
 			t.onclick = () => this.go(i);
 			t.oncontextmenu = (e) => { e.preventDefault(); this.slideMenu(i, e); };
 			// long-press on iPad
@@ -181,9 +190,41 @@ export class SlidesView extends TextFileView {
 		m.showAtMouseEvent(e);
 	}
 
+		private theme() { return this.plugin.settings.slideEffects ? themeFor(this.deck.theme, this.deck.font) : null; }
+
+	private themeMenu(e: MouseEvent) {
+		const m = new Menu();
+		m.addItem((it) => it.setTitle("Theme: Match Obsidian").setChecked(!this.deck.theme).onClick(() => this.setLook({ theme: undefined })));
+		for (const t of THEMES) m.addItem((it) => it.setTitle("Theme: " + t.name).setChecked(this.deck.theme === t.id).onClick(() => this.setLook({ theme: t.id })));
+		m.addSeparator();
+		m.addItem((it) => it.setTitle("Font: from the theme").setChecked(!this.deck.font).onClick(() => this.setLook({ font: undefined })));
+		for (const f of FONTS) m.addItem((it) => it.setTitle("Font: " + f.name).setChecked(this.deck.font === f.id).onClick(() => this.setLook({ font: f.id })));
+		m.showAtMouseEvent(e);
+	}
+	private setLook(change: { theme?: string; font?: string }) {
+		this.board?.commitText();
+		if ("theme" in change) this.deck.theme = change.theme;
+		if ("font" in change) this.deck.font = change.font;
+		this.markDirty();
+		this.build();
+	}
+
+	private effectsMenu(e: MouseEvent) {
+		const s = this.deck.slides[this.current];
+		const m = new Menu();
+		for (const [id, name] of TRANSITIONS) m.addItem((it) => it.setTitle("Transition into this slide: " + name).setChecked((s.transition ?? "none") === id).onClick(() => { s.transition = id; this.markDirty(); }));
+		m.addItem((it) => it.setTitle("Use this transition on every slide").setIcon("copy").onClick(() => { this.deck.slides.forEach((x) => (x.transition = s.transition)); this.markDirty(); new Notice("Transition applied to every slide."); }));
+		m.addSeparator();
+		m.addItem((it) => it.setTitle("Show everything at once").setChecked(!s.reveal).onClick(() => { s.reveal = undefined; this.markDirty(); }));
+		m.addItem((it) => it.setTitle("Show bullets one click at a time").setChecked(s.reveal === "bullets").onClick(() => { s.reveal = "bullets"; this.markDirty(); }));
+		m.addItem((it) => it.setTitle("Show each object one click at a time").setChecked(s.reveal === "objects").onClick(() => { s.reveal = "objects"; this.markDirty(); }));
+		m.addItem((it) => it.setTitle("Use this on every slide").setIcon("copy").onClick(() => { this.deck.slides.forEach((x) => (x.reveal = s.reveal)); this.markDirty(); new Notice("Applied to every slide."); }));
+		m.showAtMouseEvent(e);
+	}
+
 	private pickLayout(done: (id: string) => void) {
 		this.board?.commitText();
-		new LayoutPicker(this.app, this.plugin, this.file?.path ?? "", (l) => done(l.id)).open();
+		new LayoutPicker(this.app, this.plugin, this.file?.path ?? "", (l) => done(l.id), this.theme()).open();
 	}
 
 	private addSlide(after = this.current, layout = "content") {
@@ -206,7 +247,7 @@ export class SlidesView extends TextFileView {
 
 	present(start = this.current) {
 		this.board?.commitText();
-		new Presenter(this.plugin, this.deck, this.file?.path ?? "", start).open();
+		new Presenter(this.plugin, this.deck, this.file?.path ?? "", start, this.theme()).open();
 	}
 
 	async onClose() { this.thumbs.forEach((t) => this.removeChild(t)); if (this.board) this.removeChild(this.board); this.board = null; }
@@ -239,7 +280,11 @@ export class Presenter extends Component {
 	private swatchBar!: HTMLElement;
 	private bar!: HTMLElement;
 
-	constructor(private plugin: BitsAndBobs, private deck: Deck, private sourcePath: string, start: number) { super(); this.i = start; }
+	private units: HTMLElement[] = [];
+	private shown = 0;
+	private ready = false;
+
+	constructor(private plugin: BitsAndBobs, private deck: Deck, private sourcePath: string, start: number, private theme: Theme | null = null) { super(); this.i = start; }
 
 	open() {
 		this.el = document.body.createDiv("ms-present");
@@ -254,9 +299,9 @@ export class Presenter extends Component {
 			if (key) this.inkBtns.set(key, x);
 			return x;
 		};
-		b("chevron-left", "Previous", () => this.go(this.i - 1));
+		b("chevron-left", "Previous", () => this.step(-1));
 		this.counter = bar.createSpan("ms-present-count");
-		b("chevron-right", "Next", () => this.go(this.i + 1));
+		b("chevron-right", "Next", () => this.step(1));
 		if (draw) {
 			bar.createSpan("ms-present-sep");
 			b("pen-tool", "Pen (P)", () => this.setInk("pen"), "pen");
@@ -270,8 +315,8 @@ export class Presenter extends Component {
 		super.load();
 		this.registerDomEvent(document, "keydown", (e) => {
 			const k = e.key.toLowerCase();
-			if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.go(this.i + 1); }
-			else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.go(this.i - 1); }
+			if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.step(1); }
+			else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); e.stopPropagation(); this.step(-1); }
 			else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (this.inkTool !== "none") this.setInk("none"); else this.close(); }
 			else if (draw && !e.metaKey && !e.ctrlKey && !e.altKey && ["p", "h", "l", "c", "e"].includes(k)) {
 				e.preventDefault(); e.stopPropagation();
@@ -283,8 +328,8 @@ export class Presenter extends Component {
 		this.registerDomEvent(stage, "pointerdown", (e) => { sx = e.clientX; sy = e.clientY; });
 		this.registerDomEvent(stage, "pointerup", (e) => {
 			const dx = e.clientX - sx, dy = e.clientY - sy;
-			if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) this.go(this.i + (dx < 0 ? 1 : -1));
-			else if (Math.hypot(dx, dy) < 8 && e.pointerType !== "pen") this.go(this.i + (e.clientX > window.innerWidth / 3 ? 1 : -1));
+			if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) this.step(dx < 0 ? 1 : -1);
+			else if (Math.hypot(dx, dy) < 8 && e.pointerType !== "pen") this.step(e.clientX > window.innerWidth / 3 ? 1 : -1);
 		});
 		this.registerDomEvent(document, "fullscreenchange", () => { if (!document.fullscreenElement && this.el.isConnected && !Platform.isMobile) this.close(); });
 		if (!Platform.isMobile && this.plugin.settings.presentFullscreen) this.el.requestFullscreen?.().catch(() => {});
@@ -389,20 +434,57 @@ export class Presenter extends Component {
 		}
 	}
 
-	private show() {
+		private show(full = false, back = false) {
 		const stage = this.el.querySelector(".ms-present-stage") as HTMLElement;
 		if (this.board) this.removeChild(this.board);
 		stage.empty();
 		const s = this.deck.slides[this.i];
-		this.board = new Board(this.plugin, stage, { elements: s.elements, bg: s.bg }, { sourcePath: this.sourcePath, frame: { w: this.deck.w, h: this.deck.h }, readOnly: true });
-		this.addChild(this.board);
+		const effects = this.plugin.settings.slideEffects;
+		const b = new Board(this.plugin, stage, { elements: s.elements, bg: s.bg }, { sourcePath: this.sourcePath, frame: { w: this.deck.w, h: this.deck.h }, readOnly: true, theme: this.theme });
+		this.board = b;
+		this.addChild(b);
+		this.units = []; this.shown = 0; this.ready = false;
+		if (effects && s.transition && s.transition !== "none") b.root.addClass("ms-tr-" + s.transition, back ? "is-back" : "is-fwd");
+		if (effects && s.reveal) b.whenRendered().then(() => { if (this.board === b) this.prepareReveal(s, b, full); });
+		else this.ready = true;
 		this.counter.setText(`${this.i + 1} / ${this.deck.slides.length}`);
 		this.renderInk();
 	}
-	private go(i: number) {
+		/** the things that appear one click at a time on this slide */
+	private prepareReveal(s: Slide, b: Board, full: boolean) {
+		let units: HTMLElement[];
+		if (s.reveal === "bullets") units = Array.from(b.world.querySelectorAll<HTMLElement>(".ms-text li"));
+		else {
+			const first = s.elements[0];
+			const skip = first && first.type === "text" && /^\s*#/.test(first.text) ? first.id : "";
+			units = Array.from(b.world.querySelectorAll<HTMLElement>(":scope > [data-id]")).filter((n) => n.dataset.id !== skip);
+		}
+		this.units = units;
+		this.shown = full ? units.length : 0;
+		if (!full) units.forEach((u) => u.addClass("ms-step-hidden"));
+		this.ready = true;
+	}
+
+	/** next / previous click: reveals the next thing on the slide, or moves to another slide */
+	private step(d: 1 | -1) {
+		if (d === 1) {
+			if (this.ready && this.shown < this.units.length) {
+				const u = this.units[this.shown++];
+				u.removeClass("ms-step-hidden");
+				u.addClass("ms-step-in");
+				return;
+			}
+			this.go(this.i + 1);
+		} else {
+			if (this.ready && this.shown > 0) { this.units[--this.shown].addClass("ms-step-hidden"); return; }
+			this.go(this.i - 1, true);
+		}
+	}
+
+	private go(i: number, back = false) {
 		if (i >= this.deck.slides.length) { this.close(); return; }
 		if (i < 0) return;
-		this.i = i; this.show();
+		this.i = i; this.show(back, back);
 	}
 	close() {
 		if (this.trailFrame) cancelAnimationFrame(this.trailFrame);

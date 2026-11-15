@@ -31,12 +31,15 @@ export interface BitsSettings {
 	tbLasso: boolean;
 	tbTrace: boolean;
 	tbChart: boolean;
+	tbGuides: boolean;
+	tbLayers: boolean;
 	shapeSnap: boolean;
 	snapHoldMs: number;
 	// slides
 	speakerNotes: boolean;
 	presentFullscreen: boolean;
 	presentDraw: boolean;
+	slideEffects: boolean;
 	// spreadsheets
 	sheetAutocorrect: boolean;
 	sheetSuggest: boolean;
@@ -45,6 +48,7 @@ export interface BitsSettings {
 	sheetCharts: boolean;
 	superscriptTyping: boolean;
 	autoSolve: boolean;
+	typeShortcuts: boolean;
 	symbolsSidebar: boolean;
 	// other
 	homeButtons: boolean;
@@ -55,9 +59,9 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	boards: true, slides: true, sheets: true, embeds: true, ribbon: true, symbolSearch: true,
 	mathShortcuts: true, statusBar: true, mobileToolbar: true, mobileToolbarAdded: false,
 	fingerDraws: true, pencilOnlyAfterPen: true, pressure: true, penSize: 4, defaultBg: "grid", canvasDraw: true,
-	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, shapeSnap: true, snapHoldMs: 600,
-	speakerNotes: true, presentFullscreen: true, presentDraw: true,
-	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, symbolsSidebar: true,
+	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
+	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
+	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, typeShortcuts: true, symbolsSidebar: true,
 	homeButtons: true, newFileFolder: "",
 };
 
@@ -93,6 +97,7 @@ export class BitsSettingTab extends PluginSettingTab {
 		feature("symbolSearch", "Symbol search while typing", "Type \\ then a name, such as \\alpha or \\frac, to pick a symbol.");
 		toggle("superscriptTyping", "Type ^ for small raised numbers", "In a note, x^2 becomes x² as you type, and 10^-3 becomes 10⁻³. It isn't used inside maths, code or spreadsheets.");
 		toggle("autoSolve", "Auto solve", "In a note, type a sum and then =, for example 12*(3+4)=, and the answer appears after it.");
+		toggle("typeShortcuts", "Type 2/4 for a fraction", "In a note, 2/4 followed by a space becomes a fraction, sqrt(16) becomes a square root, and <= >= != +- -> become ≤ ≥ ≠ ± →. Letters such as alpha still use the symbols menu.");
 		toggle("symbolsSidebar", "Show the symbols menu in the left sidebar", "When off, the symbols menu opens as a pop-up instead.");
 		toggle("statusBar", "Maths buttons in the status bar", "The row of buttons at the bottom of the window on desktop.", () => this.plugin.setupStatusBar());
 		toggle("mobileToolbar", "Maths buttons in the mobile toolbar", "The row of buttons above the keyboard on iPad and iPhone.", (v) => (v ? this.plugin.addToMobileToolbar() : this.plugin.removeFromMobileToolbar()));
@@ -115,12 +120,15 @@ export class BitsSettingTab extends PluginSettingTab {
 		toggle("tbGraph", "Graph tool", "Show the graph button.");
 		toggle("tbTrace", "Graph trace tool", "Show the button for reading values off a graph.");
 		toggle("tbChart", "Chart tool", "Show the button for making bar, line and pie charts from numbers you type.");
+		toggle("tbGuides", "Ruler and protractor", "Show the ruler and protractor buttons. Draw close to the ruler's edge and the line stays straight.");
+		toggle("tbLayers", "Layers", "Show the layers button for stacking, hiding and locking parts of a board.");
 		toggle("tbLasso", "Lasso tool", "Show the lasso button for circling things to select them.");
 		toggle("tbImages", "Image tool", "Show the add image button.");
 		containerEl.createDiv({ cls: "setting-item-description ms-note", text: "Toolbar changes apply to boards you open next." });
 
 		new Setting(containerEl).setName("Slides").setHeading();
 		toggle("speakerNotes", "Speaker notes", "Show the notes box under each slide.");
+		toggle("slideEffects", "Slide effects", "Themes, transitions between slides, and showing bullets or objects one click at a time.");
 		toggle("presentDraw", "Draw while presenting", "Pen, highlighter and laser pointer on top of the slide. Drawings are cleared when you finish.");
 		toggle("presentFullscreen", "Present in full screen", "On desktop, presenting fills the whole screen.");
 

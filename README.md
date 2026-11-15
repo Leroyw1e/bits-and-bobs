@@ -12,12 +12,16 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Lasso**: circle things with the pen to select them, then drag them together.
 - **Graphs**: type `x^2 - 3` or `2sin(x)` and the curve is drawn. You can also add shaded areas (`y > x^2`), vertical lines (`x = 3`) and named points (`(1, 2) A`). The **trace** tool reads values off a curve as you drag across it.
 - **Charts you type the numbers into**: press the chart button, say how many bars there are, type a name and a number for each, and choose the lowest and highest number up the side. Bar, line and pie charts, up to four sets of numbers, with side and bottom labels. Double-click a chart to change it. The command **Insert a chart into this note** puts the same kind of chart into a note as a picture.
+- **Layers**: stack parts of a board, hide or lock each layer, rename and reorder them, and move a selection onto another layer. You can also lock single items so they can't be moved or erased.
+- **Ruler and protractor**: drag them into place, turn them with the round handle (they click into 15° steps), and draw close to an edge for a perfectly straight line. The ruler shows its length in cm. Fingers and the mouse move the tools, and the Pencil draws against them.
 - **Images** from your device, camera, clipboard, the vault, or by drag and drop. Images are saved in your attachments folder. iPhone HEIC photos are converted to JPEG automatically (on iPad, iPhone and macOS).
 - Grid, dots, lined or plain backgrounds, plus undo and redo (⌘Z / ⇧⌘Z, or Ctrl+Z / Ctrl+Y).
 
 ### Slides (`.mslides`)
 - Presentations where every slide works like a drawing board.
 - 11 ready-made layouts: Title slide, Title & bullets, Two columns, Compare, Section header, Equation, Worked example, Graph, Picture & text, Big statement and Blank.
+- **Themes**: Classic, Dark, Chalkboard, Ocean, Sunset, Paper and Midnight (colours and fonts for the whole deck), plus a font choice (clean, serif, rounded, handwriting, typewriter).
+- **Transitions** (fade, slide, zoom, rise) and **one click at a time**: show bullets, or each object, as you click through.
 - Slide thumbnails, speaker notes, and full-screen presenting with the keyboard, taps or swipes.
 - **Draw while presenting**: pen, highlighter and laser pointer on top of the slide (**P**, **H**, **L**, clear with **C**). Drawings stay with their slide until you finish.
 
@@ -38,6 +42,7 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Symbols menu** in the left sidebar, with Basics, Greek, Calculus, Functions, Matrices, Sets & logic and Geometry. Click where you want it, then tap a symbol. It also works for text boxes on boards.
 - **Small raised numbers**: type `x^2` and it becomes x², `10^-3` becomes 10⁻³, and `n^(n+1)` becomes n⁽ⁿ⁺¹⁾. Only a `^` stuck to a number, letter or bracket is used, so block ids and footnotes are left alone, and it isn't used inside maths or code.
 - **Auto solve**: type a sum followed by `=` and the answer appears, for example `12*(3+4)=` gives 84 and `3²+4²=` gives 25.
+- **Number and symbol shortcuts**: type `2/4` then a space for a fraction, `sqrt(16)` for a square root, and `<=`, `>=`, `!=`, `+-`, `->` for ≤ ≥ ≠ ± →. Dates such as 1/2/2025 are left alone. Anything made of letters (Greek, integrals and so on) uses the symbols menu or the bottom row.
 - **Fractions without braces**: the fraction button opens a small box with a top and a bottom. A number just before the cursor becomes the top, and a selected `3/4` turns into a fraction straight away.
 - Maths buttons in the status bar on desktop and in the toolbar above the keyboard on mobile.
 
@@ -68,7 +73,7 @@ All commands can also be given your own hotkeys in **Settings → Hotkeys**.
 
 ## Settings
 
-Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, small raised numbers, auto solve, the symbols sidebar, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool, speaker notes, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
+Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, small raised numbers, auto solve, the symbols sidebar, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool (including layers, ruler and protractor), speaker notes, slide effects,, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
 
 ## Notes
 

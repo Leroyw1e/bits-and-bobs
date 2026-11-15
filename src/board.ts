@@ -6,18 +6,20 @@ import { recognizeShape, Pt2 } from "./shapes";
 import { ChartSpec, openChartDialog, specToData, themeFromCss } from "./chartdialog";
 import { renderChart } from "./charts";
 import { parseGraphLine, GraphItem } from "./graphs";
+import type { Theme } from "./themes";
 
 // ---------- data ----------
 export type Pt = [number, number, number];
-export interface StrokeEl { id: string; type: "stroke"; pts: Pt[]; color: string; size: number; hl?: boolean; pen?: boolean }
-export interface ShapeEl { id: string; type: "shape"; kind: "rect" | "ellipse" | "line" | "arrow" | "poly"; x: number; y: number; w: number; h: number; color: string; size: number; fill?: boolean; pts?: [number, number][] }
-export interface TextEl { id: string; type: "text"; x: number; y: number; w: number; text: string; color: string; fs: number; align?: "left" | "center" | "right" }
-export interface ImageEl { id: string; type: "image"; x: number; y: number; w: number; h: number; src: string }
-export interface GraphEl { id: string; type: "graph"; x: number; y: number; w: number; h: number; fns: string[]; xmin: number; xmax: number; ymin: number; ymax: number }
-export type ChartEl = { id: string; type: "chart"; x: number; y: number; w: number; h: number } & ChartSpec;
+export interface StrokeEl { id: string; layer?: string; locked?: boolean; type: "stroke"; pts: Pt[]; color: string; size: number; hl?: boolean; pen?: boolean }
+export interface ShapeEl { id: string; layer?: string; locked?: boolean; type: "shape"; kind: "rect" | "ellipse" | "line" | "arrow" | "poly"; x: number; y: number; w: number; h: number; color: string; size: number; fill?: boolean; pts?: [number, number][] }
+export interface TextEl { id: string; layer?: string; locked?: boolean; type: "text"; x: number; y: number; w: number; text: string; color: string; fs: number; align?: "left" | "center" | "right" }
+export interface ImageEl { id: string; layer?: string; locked?: boolean; type: "image"; x: number; y: number; w: number; h: number; src: string }
+export interface GraphEl { id: string; layer?: string; locked?: boolean; type: "graph"; x: number; y: number; w: number; h: number; fns: string[]; xmin: number; xmax: number; ymin: number; ymax: number }
+export type ChartEl = { id: string; layer?: string; locked?: boolean; type: "chart"; x: number; y: number; w: number; h: number } & ChartSpec;
 export type El = StrokeEl | ShapeEl | TextEl | ImageEl | GraphEl | ChartEl;
 export type Bg = "plain" | "grid" | "dots" | "lines";
-export interface BoardDoc { elements: El[]; bg?: Bg }
+export interface Layer { id: string; name: string; hidden?: boolean; locked?: boolean }
+export interface BoardDoc { elements: El[]; bg?: Bg; layers?: Layer[]; active?: string }
 
 export type Tool = "select" | "lasso" | "trace" | "hand" | "pen" | "highlighter" | "eraser" | "text" | "rect" | "ellipse" | "line" | "arrow";
 
@@ -28,7 +30,8 @@ const HL_SIZES = [12, 20, 30, 44];
 const GRAPH_COLOURS = ["#1971c2", "#e03131", "#2f9e44", "#9c36b5", "#f08c00"];
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
-const paint = (c: string) => (c === "ink" ? "var(--ms-ink)" : c);
+const paint = (c: string) => (c === "ink" ? "var(--ms-ink)" : c === "accent" ? "var(--ms-accent, #1971c2)" : c === "accent2" ? "var(--ms-accent2, #e03131)" : c);
+const RULER_H = 64, CM = 37.8;
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}) => {
 	const e = document.createElementNS(SVGNS, tag);
@@ -86,16 +89,21 @@ export interface BoardOpts {
 	readOnly?: boolean;
 	compact?: boolean;
 	onChange?: (doc: BoardDoc) => void;
-	onOpenFull?: () => void;
+		onOpenFull?: () => void;
+	theme?: Theme | null;
 }
 
 interface Box { x: number; y: number; w: number; h: number }
+/** A straight edge (ruler or protractor) a stroke is being held to */
+interface Rule { sx: number; sy: number; dx: number; dy: number; tmin: number; tmax: number }
+interface Guide { kind: "ruler" | "protractor"; x: number; y: number; angle: number; size: number }
 
 /** A stroke that the pen has been held on, and that has been snapped to a clean shape. */
 interface SnapState { shape: ShapeEl | null; stroke: StrokeEl | null; node: Element; line: boolean }
 
 type Action =
-	| { kind: "draw"; el: StrokeEl; node: SVGPathElement; holdTimer: number; ax: number; ay: number; snap: SnapState | null }
+	| { kind: "draw"; el: StrokeEl; node: SVGPathElement; holdTimer: number; ax: number; ay: number; snap: SnapState | null; rule: Rule | null }
+
 	| { kind: "lasso"; pts: Pt2[]; node: SVGPolygonElement; svg: SVGSVGElement }
 	| { kind: "trace" }
 	| { kind: "erase"; removed: boolean }
@@ -104,7 +112,7 @@ type Action =
 	| { kind: "move"; sx: number; sy: number; orig: Map<string, string>; moved: boolean }
 	| { kind: "resize"; id: string; sx: number; sy: number; orig: string }
 	| { kind: "marquee"; sx: number; sy: number; box: HTMLElement; add: boolean }
-	| { kind: "shape"; el: ShapeEl; sx: number; sy: number };
+	| { kind: "shape"; el: ShapeEl; sx: number; sy: number; rule: Rule | null };
 
 export class Board extends Component {
 	root: HTMLElement;
@@ -135,18 +143,32 @@ export class Board extends Component {
 	private swatchRow?: HTMLElement;
 	private sizeRow?: HTMLElement;
 	private renderToken = 0;
-	private traceLayer?: HTMLElement;
+		private traceLayer?: HTMLElement;
+	private guide: Guide | null = null;
+	private guideEl?: HTMLElement;
+	private layersEl?: HTMLElement;
+	private pendingRenders: Promise<unknown>[] = [];
+	private rendered: Promise<unknown> = Promise.resolve();
+	private lastLockNote = 0;
+
 
 	constructor(private plugin: BitsAndBobs, host: HTMLElement, doc: BoardDoc, private opts: BoardOpts) {
 		super();
 		this.doc = doc;
 		const s = plugin.settings;
 		this.tool = opts.readOnly ? "hand" : "pen";
-		this.penSize = s.penSize;
+				this.penSize = s.penSize;
+
 		this.root = host.createDiv({ cls: "ms-board" + (opts.readOnly ? " is-static" : "") + (opts.compact ? " is-compact" : "") + (opts.frame ? " has-frame" : "") });
 		if (!opts.readOnly) {
 			this.root.tabIndex = 0;
 			this.buildToolbar();
+		}
+				const th = opts.theme;
+		if (th) {
+			const set = (k: string, v: string) => { if (v) this.root.style.setProperty(k, v); };
+			set("--ms-ink", th.ink); set("--ms-accent", th.accent); set("--ms-accent2", th.accent2);
+			set("--ms-font", th.font); set("--ms-head-font", th.head); set("--ms-frame-bg", th.bg);
 		}
 		this.viewport = this.root.createDiv("ms-viewport");
 		this.world = this.viewport.createDiv("ms-world");
@@ -233,7 +255,8 @@ export class Board extends Component {
 	}
 
 	renderAll() {
-		const token = ++this.renderToken;
+				const token = ++this.renderToken;
+		this.pendingRenders = [];
 		this.world.empty();
 		this.nodes.clear();
 		if (this.opts.frame) {
@@ -243,10 +266,15 @@ export class Board extends Component {
 			f.dataset.bg = this.doc.bg ?? "plain";
 		}
 		for (const el of this.doc.elements) this.world.appendChild(this.makeNode(el, token));
-		this.world.appendChild(this.selLayer);
+				this.world.appendChild(this.selLayer);
+		this.rendered = Promise.all(this.pendingRenders);
+		this.drawGuide();
 		this.applyView();
 		this.drawSelection();
 	}
+
+	/** Resolves once every text and maths box has been drawn. */
+	whenRendered() { return this.rendered; }
 
 	private makeNode(el: El, token = this.renderToken): Element {
 		let node: Element;
@@ -261,10 +289,10 @@ export class Board extends Component {
 		} else if (el.type === "text") {
 			const d = createDiv("ms-text");
 			this.placeText(d, el);
-			MarkdownRenderer.render(this.plugin.app, el.text || " ", d, this.opts.sourcePath, this).then(() => {
-				if (token !== this.renderToken) return;
-				if (this.selection.has(el.id)) this.drawSelection();
-			});
+							this.pendingRenders.push(MarkdownRenderer.render(this.plugin.app, el.text || " ", d, this.opts.sourcePath, this).then(() => {
+					if (token !== this.renderToken) return;
+					if (this.selection.has(el.id)) this.drawSelection();
+				}));
 			node = d;
 		} else if (el.type === "image") {
 			const d = createDiv("ms-image");
@@ -276,7 +304,8 @@ export class Board extends Component {
 		} else {
 			node = el.type === "chart" ? this.chartNode(el) : this.graphNode(el);
 		}
-		(node as HTMLElement).dataset.id = el.id;
+				(node as HTMLElement).dataset.id = el.id;
+		if (this.isHidden(el)) (node as HTMLElement).style.display = "none";
 		this.nodes.set(el.id, node);
 		return node;
 	}
@@ -516,7 +545,7 @@ export class Board extends Component {
 
 	private topHit(x: number, y: number): El | null {
 		const tol = 6 / this.z;
-		for (let i = this.doc.elements.length - 1; i >= 0; i--) if (this.hit(this.doc.elements[i], x, y, tol)) return this.doc.elements[i];
+		for (let i = this.doc.elements.length - 1; i >= 0; i--) if (this.live(this.doc.elements[i]) && this.hit(this.doc.elements[i], x, y, tol)) return this.doc.elements[i];
 		return null;
 	}
 
@@ -547,6 +576,313 @@ export class Board extends Component {
 		this.syncToolbar();
 	}
 
+		// ---------- layers ----------
+	private layerIndex(el: El): number {
+		const ls = this.doc.layers;
+		if (!ls) return 0;
+		const i = el.layer ? ls.findIndex((l) => l.id === el.layer) : -1;
+		return i < 0 ? 0 : i;
+	}
+	private layerOf(el: El): Layer | undefined { return this.doc.layers?.[this.layerIndex(el)]; }
+	private isHidden(el: El) { return !!this.layerOf(el)?.hidden; }
+	private isLocked(el: El) { return !!el.locked || !!this.layerOf(el)?.locked; }
+	/** can be picked, moved, erased or lassoed */
+	private live(el: El) { return !this.isHidden(el) && !this.isLocked(el); }
+	private activeLayer(): Layer | undefined {
+		const ls = this.doc.layers;
+		return ls ? ls.find((l) => l.id === this.doc.active) ?? ls[0] : undefined;
+	}
+	private ensureLayers(): Layer[] {
+		if (!this.doc.layers) {
+			this.doc.layers = [{ id: "base", name: "Layer 1" }];
+			this.doc.active = "base";
+			for (const el of this.doc.elements) el.layer = "base";
+		}
+		return this.doc.layers;
+	}
+	/** gives every element its layer id, so moving layers around can't shuffle the ones without one */
+	private normalizeLayers() {
+		const ls = this.doc.layers;
+		if (ls) for (const el of this.doc.elements) el.layer = ls[this.layerIndex(el)].id;
+	}
+	private sortByLayer() {
+		if ((this.doc.layers?.length ?? 0) < 2) return;
+		this.doc.elements.sort((a, b) => this.layerIndex(a) - this.layerIndex(b));
+	}
+	private applyLayerState() {
+		for (const el of this.doc.elements) {
+			const n = this.nodes.get(el.id) as HTMLElement | undefined;
+			if (n) n.style.display = this.isHidden(el) ? "none" : "";
+			if (!this.live(el)) this.selection.delete(el.id);
+		}
+		this.drawSelection();
+	}
+	private canDraw(): boolean {
+		const a = this.activeLayer();
+		const why = a?.locked ? `“${a.name}” is locked. Unlock it or pick another layer.` : a?.hidden ? `“${a.name}” is hidden. Show it or pick another layer.` : "";
+		if (!why) return true;
+		if (Date.now() - this.lastLockNote > 1500) { this.lastLockNote = Date.now(); new Notice(why); }
+		return false;
+	}
+	lockSelection(lock: boolean) {
+		const els = lock ? this.doc.elements.filter((e) => this.selection.has(e.id)) : this.doc.elements.filter((e) => e.locked);
+		if (!els.length) { new Notice(lock ? "Select something first." : "Nothing is locked."); return; }
+		this.snapshot();
+		for (const el of els) { if (lock) el.locked = true; else delete el.locked; }
+		if (lock) this.selection.clear();
+		this.applyLayerState();
+		this.changed();
+		this.renderLayers();
+	}
+
+	private toggleLayers() {
+		if (this.layersEl) { this.layersEl.remove(); this.layersEl = undefined; this.syncToolbar(); return; }
+		this.ensureLayers();
+		this.layersEl = this.root.createDiv("ms-layers");
+		this.layersEl.onpointerdown = (e) => e.stopPropagation();
+		this.renderLayers();
+		this.syncToolbar();
+	}
+
+	private renderLayers() {
+		const p = this.layersEl;
+		if (!p) return;
+		p.empty();
+		const ls = this.ensureLayers();
+		const act = this.activeLayer();
+		const icon = (parent: HTMLElement, name: string, label: string, fn: () => void, off = false) => {
+			const b = parent.createEl("button", { cls: "clickable-icon ms-layer-btn", attr: { "aria-label": label } });
+			setIcon(b, name);
+			if (off) b.disabled = true;
+			b.onclick = (e) => { e.stopPropagation(); fn(); };
+			return b;
+		};
+		const done = (reorder = false) => {
+			if (reorder) { this.normalizeLayers(); this.sortByLayer(); this.renderAll(); } else this.applyLayerState();
+			this.changed();
+			this.renderLayers();
+		};
+		const head = p.createDiv("ms-layers-head");
+		head.createSpan({ text: "Layers" });
+		icon(head, "plus", "Add a layer on top", () => {
+			this.normalizeLayers();
+			const l: Layer = { id: uid(), name: `Layer ${ls.length + 1}` };
+			ls.push(l);
+			this.doc.active = l.id;
+			done();
+		});
+		icon(head, "x", "Close", () => this.toggleLayers());
+
+		for (let i = ls.length - 1; i >= 0; i--) {
+			const l = ls[i];
+			const count = this.doc.elements.filter((e) => this.layerIndex(e) === i).length;
+			const row = p.createDiv("ms-layer-row" + (l === act ? " is-active" : "") + (l.hidden ? " is-off" : ""));
+			icon(row, l.hidden ? "eye-off" : "eye", l.hidden ? "Show this layer" : "Hide this layer", () => { l.hidden = !l.hidden || undefined; done(); });
+			icon(row, l.locked ? "lock" : "lock-open", l.locked ? "Unlock this layer" : "Lock this layer", () => { l.locked = !l.locked || undefined; done(); });
+			const name = row.createSpan({ cls: "ms-layer-name", text: l.name });
+			name.onclick = () => { this.doc.active = l.id; this.changed(); this.renderLayers(); };
+			name.ondblclick = () => {
+				const inp = createEl("input", { type: "text", cls: "ms-layer-rename" });
+				inp.value = l.name;
+				name.replaceWith(inp);
+				inp.focus(); inp.select();
+				let finished = false;
+				const finish = (save: boolean) => { if (finished) return; finished = true; if (save && inp.value.trim()) { l.name = inp.value.trim(); this.changed(); } this.renderLayers(); };
+				inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") finish(true); else if (e.key === "Escape") finish(false); };
+				inp.onblur = () => finish(true);
+			};
+			row.createSpan({ cls: "ms-layer-count", text: String(count) });
+			icon(row, "chevron-up", "Move up", () => { [ls[i], ls[i + 1]] = [ls[i + 1], ls[i]]; done(true); }, i === ls.length - 1);
+			icon(row, "chevron-down", "Move down", () => { [ls[i], ls[i - 1]] = [ls[i - 1], ls[i]]; done(true); }, i === 0);
+			icon(row, "trash-2", count ? "Delete this layer and what's on it" : "Delete this layer", () => {
+				this.normalizeLayers();
+				this.snapshot();
+				this.doc.elements = this.doc.elements.filter((e) => e.layer !== l.id);
+				ls.splice(i, 1);
+				if (this.doc.active === l.id) this.doc.active = ls[Math.min(i, ls.length - 1)].id;
+				this.selection.clear();
+				done(true);
+			}, ls.length < 2);
+		}
+
+		const foot = p.createDiv("ms-layers-foot");
+		const mk = (text: string, fn: () => void, off = false) => { const b = foot.createEl("button", { text }); b.disabled = off; b.onclick = (e) => { e.stopPropagation(); fn(); }; };
+		mk("Move selection here", () => {
+			if (!act) return;
+			this.snapshot();
+			for (const el of this.doc.elements) if (this.selection.has(el.id)) el.layer = act.id;
+			this.normalizeLayers(); this.sortByLayer(); this.renderAll(); this.changed(); this.renderLayers();
+		}, !this.selection.size);
+		mk("Lock selection", () => this.lockSelection(true), !this.selection.size);
+		mk("Unlock locked items", () => this.lockSelection(false), !this.doc.elements.some((e) => e.locked));
+		p.createDiv({ cls: "ms-layers-tip", text: "New drawing goes on the highlighted layer. Double-click a name to rename it." });
+	}
+
+	// ---------- ruler and protractor ----------
+	private toggleGuide(kind: "ruler" | "protractor") {
+		if (this.guide?.kind === kind) this.guide = null;
+		else {
+			const c = this.viewCentre();
+			const seenW = this.viewport.clientWidth / this.z, seenH = this.viewport.clientHeight / this.z;
+			if (kind === "ruler") {
+				const size = Math.round(Math.min(640, Math.max(220, seenW * 0.6)));
+				this.guide = { kind, x: c.x - size / 2, y: c.y - RULER_H / 2, angle: 0, size };
+			} else {
+				const size = Math.round(Math.min(280, Math.max(110, Math.min(seenW * 0.3, seenH * 0.45))));
+				this.guide = { kind, x: c.x, y: c.y + size / 2, angle: 0, size };
+			}
+		}
+		this.drawGuide();
+		this.syncToolbar();
+	}
+
+	/** the long straight edges of the ruler or protractor, in board coordinates */
+	private guideEdges(g: Guide) {
+		const dx = Math.cos(g.angle), dy = Math.sin(g.angle), nx = -dy, ny = dx;
+		const edges = g.kind === "ruler"
+			? [{ x: g.x, y: g.y, len: g.size }, { x: g.x + nx * RULER_H, y: g.y + ny * RULER_H, len: g.size }]
+			: [{ x: g.x - dx * g.size, y: g.y - dy * g.size, len: g.size * 2 }];
+		return { dx, dy, nx, ny, edges };
+	}
+
+	/** if a stroke starts close to the ruler's edge, it is held to that edge */
+	private guideRule(x: number, y: number): Rule | null {
+		const g = this.guide;
+		if (!g || this.opts.readOnly) return null;
+		const { dx, dy, nx, ny, edges } = this.guideEdges(g);
+		let best: Rule | null = null;
+		let bd = 28 / this.z;
+		for (const e of edges) {
+			const px = x - e.x, py = y - e.y;
+			const t = px * dx + py * dy;
+			const dist = Math.abs(px * nx + py * ny);
+			if (dist <= bd && t >= -bd && t <= e.len + bd) {
+				bd = dist;
+				const t0 = Math.max(0, Math.min(e.len, t));
+				best = { sx: e.x + dx * t0, sy: e.y + dy * t0, dx, dy, tmin: -t0, tmax: e.len - t0 };
+			}
+		}
+		return best;
+	}
+	private ruled(r: Rule, x: number, y: number): [number, number] {
+		const t = Math.max(r.tmin, Math.min(r.tmax, (x - r.sx) * r.dx + (y - r.sy) * r.dy));
+		return [r.sx + r.dx * t, r.sy + r.dy * t];
+	}
+
+	private guideParts?: { svgHost: HTMLElement; handle: HTMLElement; label: HTMLElement; close: HTMLElement };
+
+	private drawGuide() {
+		this.guideEl?.remove();
+		this.guideEl = undefined;
+		const g = this.guide;
+		if (!g || this.opts.readOnly) return;
+		const d = createDiv("ms-guide is-" + g.kind);
+		const svgHost = d.createDiv("ms-guide-svg");
+		const label = d.createDiv("ms-guide-label");
+		const handle = d.createDiv("ms-guide-handle");
+		const close = d.createEl("button", { cls: "ms-guide-close", attr: { "aria-label": "Put it away" } });
+		setIcon(close, "x");
+		this.guideParts = { svgHost, handle, label, close };
+		this.guideEl = d;
+		this.styleGuide();
+		this.world.appendChild(d);
+
+		let mode: "move" | "turn" | null = null;
+		let off = { x: 0, y: 0 };
+		d.onpointerdown = (e) => {
+			if (!this.guide) return;
+			if (close.contains(e.target as Node)) { e.stopPropagation(); return; }
+			const onHandle = handle.contains(e.target as Node);
+			if (e.pointerType === "pen" && !onHandle) return; // the pencil draws against the edge instead
+			e.stopPropagation(); e.preventDefault();
+			try { d.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+			const w = this.toWorld(e);
+			mode = onHandle ? "turn" : "move";
+			off = { x: w.x - this.guide.x, y: w.y - this.guide.y };
+		};
+		d.onpointermove = (e) => {
+			const gd = this.guide;
+			if (!mode || !gd) return;
+			e.stopPropagation();
+			const w = this.toWorld(e);
+			if (mode === "move") { gd.x = w.x - off.x; gd.y = w.y - off.y; }
+			else {
+				let ang = Math.atan2(w.y - gd.y, w.x - gd.x);
+				const step = Math.PI / 12, near = Math.round(ang / step) * step;
+				if (Math.abs(ang - near) < 0.025) ang = near; // click into 15° steps
+				gd.angle = ang;
+				gd.size = Math.max(gd.kind === "ruler" ? 140 : 70, Math.hypot(w.x - gd.x, w.y - gd.y));
+			}
+			this.styleGuide();
+		};
+		const end = (e: PointerEvent) => { if (mode) { e.stopPropagation(); mode = null; try { d.releasePointerCapture(e.pointerId); } catch { /* ignore */ } } };
+		d.onpointerup = end;
+		d.onpointercancel = end;
+		close.onclick = (e) => { e.stopPropagation(); this.guide = null; this.drawGuide(); this.syncToolbar(); };
+	}
+
+	private styleGuide() {
+		const g = this.guide, d = this.guideEl, parts = this.guideParts;
+		if (!g || !d || !parts) return;
+		const deg = ((((-g.angle * 180) / Math.PI) % 180) + 180) % 180;
+		parts.svgHost.empty();
+		if (g.kind === "ruler") {
+			d.style.cssText = `left:${g.x}px;top:${g.y}px;width:${g.size}px;height:${RULER_H}px;transform:rotate(${g.angle}rad);transform-origin:0 0`;
+			parts.svgHost.appendChild(this.rulerSvg(g.size));
+			parts.handle.style.cssText = `left:${g.size}px;top:${RULER_H / 2}px`;
+			parts.close.style.cssText = "left:6px;top:6px";
+			parts.label.setText(`${(g.size / CM).toFixed(1)} cm · ${Math.round(deg) % 180}°`);
+			parts.label.style.cssText = `left:${g.size / 2}px;top:${RULER_H - 22}px`;
+		} else {
+			const r = g.size;
+			d.style.cssText = `left:${g.x - r}px;top:${g.y - r}px;width:${2 * r}px;height:${r + 2}px;transform:rotate(${g.angle}rad);transform-origin:${r}px ${r}px`;
+			parts.svgHost.appendChild(this.protractorSvg(r));
+			parts.handle.style.cssText = `left:${2 * r}px;top:${r}px`;
+			parts.close.style.cssText = `left:${r}px;top:${r - 24 / this.z}px`;
+			parts.label.setText("");
+		}
+	}
+
+	private rulerSvg(len: number): SVGSVGElement {
+		const svg = svgEl("svg", { width: len, height: RULER_H, viewBox: `0 0 ${len} ${RULER_H}` });
+		svg.appendChild(svgEl("rect", { class: "ms-guide-body", x: 0.5, y: 0.5, width: len - 1, height: RULER_H - 1, rx: 6 }));
+		const mm = CM / 10;
+		for (let i = 0; i * mm <= len - 2; i++) {
+			const x = i * mm, major = i % 10 === 0, mid = i % 5 === 0;
+			const h = major ? 20 : mid ? 14 : 8;
+			svg.appendChild(svgEl("line", { class: "tick", x1: x, y1: 0, x2: x, y2: h }));
+			if (major && i > 0) { const t = svgEl("text", { x: x, y: h + 12, "text-anchor": "middle" }); t.textContent = String(i / 10); svg.appendChild(t); }
+		}
+		return svg;
+	}
+
+	private protractorSvg(r: number): SVGSVGElement {
+		const svg = svgEl("svg", { width: 2 * r, height: r + 2, viewBox: `0 0 ${2 * r} ${r + 2}` });
+		svg.appendChild(svgEl("path", { class: "ms-guide-body", d: `M 0 ${r} A ${r} ${r} 0 0 1 ${2 * r} ${r} Z` }));
+		const step = r > 150 ? 1 : r > 90 ? 2 : 5;
+		const pt = (deg: number, rad: number): [number, number] => [r + rad * Math.cos((deg * Math.PI) / 180), r - rad * Math.sin((deg * Math.PI) / 180)];
+		for (let a = 0; a <= 180; a += step) {
+			const len = a % 10 === 0 ? 16 : a % 5 === 0 ? 11 : 6;
+			const [x1, y1] = pt(a, r), [x2, y2] = pt(a, r - len);
+			svg.appendChild(svgEl("line", { class: "tick", x1, y1, x2, y2 }));
+		}
+		for (let a = 10; a < 180; a += 10) {
+			const [x, y] = pt(a, r - 27);
+			const t = svgEl("text", { x, y, "text-anchor": "middle", "dominant-baseline": "middle" });
+			t.textContent = String(a);
+			svg.appendChild(t);
+			if (r > 100) {
+				const [ix, iy] = pt(a, r - 44);
+				const u = svgEl("text", { x: ix, y: iy, "text-anchor": "middle", "dominant-baseline": "middle", class: "inner" });
+				u.textContent = String(180 - a);
+				svg.appendChild(u);
+			}
+		}
+		svg.appendChild(svgEl("line", { class: "tick", x1: r - 8, y1: r, x2: r + 8, y2: r }));
+		svg.appendChild(svgEl("line", { class: "tick", x1: r, y1: r - 8, x2: r, y2: r }));
+		return svg;
+	}
+
 	// ---------- history ----------
 	private snapshot() {
 		this.undoStack.push(JSON.stringify(this.doc.elements));
@@ -564,11 +900,20 @@ export class Board extends Component {
 		this.undoStack.push(JSON.stringify(this.doc.elements));
 		this.doc.elements = JSON.parse(s); this.selection.clear(); this.renderAll(); this.changed();
 	}
-	add(el: El) {
+		add(el: El) {
 		this.snapshot();
+		const act = this.activeLayer();
+		if (act && !el.layer) el.layer = act.id;
 		this.doc.elements.push(el);
-		this.world.insertBefore(this.makeNode(el), this.selLayer);
+		this.sortByLayer();
+		this.placeNode(el, this.makeNode(el));
 		this.changed();
+	}
+	/** puts a node just under the next element up, so layers stack the way they are listed */
+	private placeNode(el: El, node: Element) {
+		const i = this.doc.elements.indexOf(el);
+		const next = this.doc.elements[i + 1];
+		this.world.insertBefore(node, (next && this.nodes.get(next.id)) || this.selLayer);
 	}
 	deleteSelection() {
 		if (!this.selection.size) return;
@@ -584,7 +929,8 @@ export class Board extends Component {
 		if (!copies.length) return;
 		this.snapshot();
 		this.selection.clear();
-		for (const c of copies) { c.id = uid(); this.doc.elements.push(c); this.world.insertBefore(this.makeNode(c), this.selLayer); this.selection.add(c.id); }
+		for (const c of copies) { c.id = uid(); delete c.locked; this.doc.elements.push(c); this.selection.add(c.id); }
+		this.sortByLayer(); this.renderAll();
 		this.drawSelection(); this.changed();
 	}
 	private offset<T extends El>(el: T, dx: number, dy: number): T {
@@ -657,22 +1003,25 @@ export class Board extends Component {
 			this.root.addClass("is-panning");
 			return;
 		}
-		if (e.button === 2) return;
+				if (e.button === 2) return;
 		const barrelEraser = e.pointerType === "pen" && (e.buttons & 32) !== 0;
-		const tool: Tool = barrelEraser ? "eraser" : this.tool;
+				const tool: Tool = barrelEraser ? "eraser" : this.tool;
+		if (["pen", "highlighter", "rect", "ellipse", "line", "arrow", "text"].includes(tool) && !this.canDraw()) return;
+
 
 		if (tool === "pen" || tool === "highlighter") {
 			const hl = tool === "highlighter";
-			const isPen = e.pointerType === "pen" && e.pressure > 0 && this.plugin.settings.pressure;
-			const el: StrokeEl = { id: uid(), type: "stroke", pts: [[x, y, isPen ? e.pressure : 0.5]], color: hl ? this.hlColor : this.color, size: hl ? this.hlSize : this.penSize, ...(hl ? { hl: true } : {}), ...(isPen && !hl ? { pen: true } : {}) };
+							const isPen = e.pointerType === "pen" && e.pressure > 0 && this.plugin.settings.pressure;
+				const rule = this.guideRule(x, y);
+				const el: StrokeEl = { id: uid(), type: "stroke", pts: [[rule ? rule.sx : x, rule ? rule.sy : y, isPen ? e.pressure : 0.5]], color: hl ? this.hlColor : this.color, size: hl ? this.hlSize : this.penSize, ...(hl ? { hl: true } : {}), ...(isPen && !hl ? { pen: true } : {}) };
 			const svg = svgEl("svg", { class: "ms-svg" + (hl ? " is-hl" : "") });
 			const node = svgEl("path", { d: strokePath(el) });
 			node.style.fill = hl ? el.color : paint(el.color);
 			svg.appendChild(node);
 			this.world.insertBefore(svg, this.selLayer);
-			const act = { kind: "draw" as const, el, node, holdTimer: 0, ax: e.clientX, ay: e.clientY, snap: null };
-			this.action = act;
-			this.armHold(act);
+			const act = { kind: "draw" as const, el, node, holdTimer: 0, ax: e.clientX, ay: e.clientY, snap: null, rule };
+				this.action = act;
+				if (!rule) this.armHold(act);
 		} else if (tool === "lasso") {
 			const sel = this.doc.elements.filter((d) => this.selection.has(d.id));
 			if (sel.length) { const u = this.unionBox(sel); if (x >= u.x && x <= u.x + u.w && y >= u.y && y <= u.y + u.h) { this.startMove(x, y); return; } }
@@ -696,12 +1045,14 @@ export class Board extends Component {
 		} else if (tool === "select") {
 			this.selectDown(e, x, y);
 		} else {
-			const el: ShapeEl = { id: uid(), type: "shape", kind: tool, x, y, w: 0, h: 0, color: this.color, size: Math.max(2, this.penSize / 1.5) };
+							const rule = tool === "line" || tool === "arrow" ? this.guideRule(x, y) : null;
+				const sx0 = rule ? rule.sx : x, sy0 = rule ? rule.sy : y;
+				const el: ShapeEl = { id: uid(), type: "shape", kind: tool, x: sx0, y: sy0, w: 0, h: 0, color: this.color, size: Math.max(2, this.penSize / 1.5) };
 			const node = this.shapeSvg(el);
 			(node as unknown as HTMLElement).dataset.id = el.id;
 			this.nodes.set(el.id, node);
 			this.world.insertBefore(node, this.selLayer);
-			this.action = { kind: "shape", el, sx: x, sy: y };
+			this.action = { kind: "shape", el, sx: sx0, sy: sy0, rule };
 		}
 	}
 
@@ -828,8 +1179,15 @@ export class Board extends Component {
 				}
 				return;
 			}
-			const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
-			for (const ev of evs.length ? evs : [e]) {
+							if (a.rule) {
+					const w = this.toWorld(e);
+					const [qx, qy] = this.ruled(a.rule, w.x, w.y);
+					a.el.pts = [[a.rule.sx, a.rule.sy, 0.5], [qx, qy, 0.5]];
+					a.node.setAttribute("d", strokePath(a.el));
+					return;
+				}
+				const evs = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
+				for (const ev of evs.length ? evs : [e]) {
 				const { x, y } = this.toWorld(ev);
 				a.el.pts.push([x, y, a.el.pen ? Math.max(0.05, ev.pressure) : 0.5]);
 			}
@@ -853,8 +1211,9 @@ export class Board extends Component {
 				if (a.el.kind === "rect" || a.el.kind === "ellipse") { const m = Math.max(Math.abs(w), Math.abs(h)); w = Math.sign(w || 1) * m; h = Math.sign(h || 1) * m; }
 				else { const ang = Math.round(Math.atan2(h, w) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(w, h); w = len * Math.cos(ang); h = len * Math.sin(ang); }
 			}
-			a.el.w = w; a.el.h = h;
-			const fresh = this.shapeSvg(a.el);
+							if (a.rule) { const [qx, qy] = this.ruled(a.rule, x, y); w = qx - a.sx; h = qy - a.sy; }
+				a.el.w = w; a.el.h = h;
+				const fresh = this.shapeSvg(a.el);
 			(fresh as unknown as HTMLElement).dataset.id = a.el.id;
 			this.nodes.get(a.el.id)?.replaceWith(fresh); this.nodes.set(a.el.id, fresh);
 			return;
@@ -914,9 +1273,10 @@ export class Board extends Component {
 			a.svg.remove();
 			const poly = a.pts;
 			if (poly.length > 5) {
-				for (const el of this.doc.elements) {
-					if (el.type === "stroke") {
-						let inside = 0; for (const q of el.pts) if (inPoly(q[0], q[1], poly)) inside++;
+									for (const el of this.doc.elements) {
+						if (!this.live(el)) continue;
+						if (el.type === "stroke") {
+							let inside = 0; for (const q of el.pts) if (inPoly(q[0], q[1], poly)) inside++;
 						if (inside / el.pts.length >= 0.5) this.selection.add(el.id);
 					} else {
 						const b = this.bbox(el);
@@ -948,7 +1308,7 @@ export class Board extends Component {
 			const x2 = x1 + (parseFloat(a.box.style.width) || 0), y2 = y1 + (parseFloat(a.box.style.height) || 0);
 			a.box.remove();
 			if (x2 - x1 > 2 || y2 - y1 > 2) {
-				for (const el of this.doc.elements) { const b = this.bbox(el); if (b.x >= x1 && b.y >= y1 && b.x + b.w <= x2 && b.y + b.h <= y2) this.selection.add(el.id); }
+				for (const el of this.doc.elements) { if (!this.live(el)) continue; const b = this.bbox(el); if (b.x >= x1 && b.y >= y1 && b.x + b.w <= x2 && b.y + b.h <= y2) this.selection.add(el.id); }
 			}
 			this.drawSelection();
 		}
@@ -958,7 +1318,7 @@ export class Board extends Component {
 		const tol = Math.max(6, this.penSize * 2) / this.z;
 		const keep: El[] = [];
 		for (const el of this.doc.elements) {
-			if ((el.type === "stroke" || el.type === "shape") && this.hit(el, x, y, tol)) {
+			if ((el.type === "stroke" || el.type === "shape") && this.live(el) && this.hit(el, x, y, tol)) {
 				this.nodes.get(el.id)?.remove(); this.nodes.delete(el.id);
 				if (this.action?.kind === "erase") this.action.removed = true;
 			} else keep.push(el);
@@ -998,7 +1358,7 @@ export class Board extends Component {
 		}
 		if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
 		if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); this.redo(); return; }
-		if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); this.doc.elements.forEach((el) => this.selection.add(el.id)); this.setTool("select"); this.drawSelection(); return; }
+		if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); this.doc.elements.forEach((el) => { if (this.live(el)) this.selection.add(el.id); }); this.setTool("select"); this.drawSelection(); return; }
 		if (mod && e.key.toLowerCase() === "d") { e.preventDefault(); this.duplicateSelection(); return; }
 		if (mod && (e.key === "=" || e.key === "+")) { e.preventDefault(); const r = this.viewport.getBoundingClientRect(); this.zoomAt(r.width / 2, r.height / 2, 1.25); return; }
 		if (mod && e.key === "-") { e.preventDefault(); const r = this.viewport.getBoundingClientRect(); this.zoomAt(r.width / 2, r.height / 2, 0.8); return; }
@@ -1299,14 +1659,20 @@ export class Board extends Component {
 			btn(g, "line", "minus", "Line (L)", () => this.setTool("line"));
 			btn(g, "arrow", "move-up-right", "Arrow (A)", () => this.setTool("arrow"));
 		}
-		if (st.tbImages) { g = group(); btn(g, "image", "image-plus", "Add image (I)", () => this.pickImage()); }
+				if (st.tbImages) { g = group(); btn(g, "image", "image-plus", "Add image (I)", () => this.pickImage()); }
+		if (!compact && !this.opts.frame && st.tbGuides) {
+			g = group();
+			btn(g, "ruler", "ruler", "Ruler: draw close to its edge to get a straight line", () => this.toggleGuide("ruler"));
+			btn(g, "protractor", "compass", "Protractor: measure and draw angles", () => this.toggleGuide("protractor"));
+		}
 		this.swatchRow = tb.createDiv("ms-tb-group ms-swatches");
 		if (!compact) this.sizeRow = tb.createDiv("ms-tb-group ms-sizes");
 		g = group();
 		btn(g, "undo", "undo-2", "Undo (⌘Z)", () => this.undo());
 		btn(g, "redo", "redo-2", "Redo (⇧⌘Z)", () => this.redo());
 		btn(g, "delete", "trash-2", "Delete selected", () => this.deleteSelection());
-		g = group();
+				g = group();
+		if (!compact && !this.opts.frame && st.tbLayers) btn(g, "layers", "layers", "Layers: stack, hide and lock parts of the board", () => this.toggleLayers());
 		btn(g, "fit", "maximize", "Fit to screen (0)", () => { this.userZoomed = false; this.fit(); });
 		btn(g, "more", "more-horizontal", "More", () => this.moreMenu());
 		if (this.opts.onOpenFull) btn(g, "open", "maximize-2", "Open full board", () => this.opts.onOpenFull!());
@@ -1322,6 +1688,8 @@ export class Board extends Component {
 		m.addItem((i) => i.setTitle(this.selection.size ? "Duplicate selection" : "Duplicate (select something first)").setIcon("copy").setDisabled(!this.selection.size).onClick(() => this.duplicateSelection()));
 		m.addItem((i) => i.setTitle("Bring selection to front").setIcon("bring-to-front").setDisabled(!this.selection.size).onClick(() => this.reorder(true)));
 		m.addItem((i) => i.setTitle("Send selection to back").setIcon("send-to-back").setDisabled(!this.selection.size).onClick(() => this.reorder(false)));
+				m.addItem((i) => i.setTitle("Lock selection (can't be moved or erased)").setIcon("lock").setDisabled(!this.selection.size).onClick(() => this.lockSelection(true)));
+		m.addItem((i) => i.setTitle("Unlock everything locked").setIcon("lock-open").onClick(() => this.lockSelection(false)));
 		m.addItem((i) => i.setTitle("Fill shapes").setIcon("paint-bucket").setDisabled(!this.selection.size).onClick(() => {
 			const shapes = this.doc.elements.filter((e) => this.selection.has(e.id) && e.type === "shape") as ShapeEl[];
 			if (!shapes.length) return;
@@ -1353,7 +1721,10 @@ export class Board extends Component {
 
 	private syncToolbar() {
 		if (!this.toolbar) return;
-		for (const [k, b] of this.toolButtons) b.toggleClass("is-active", k === this.tool);
+				for (const [k, b] of this.toolButtons) b.toggleClass("is-active", k === this.tool);
+		this.toolButtons.get("ruler")?.toggleClass("is-active", this.guide?.kind === "ruler");
+		this.toolButtons.get("protractor")?.toggleClass("is-active", this.guide?.kind === "protractor");
+		this.toolButtons.get("layers")?.toggleClass("is-active", !!this.layersEl);
 		const del = this.toolButtons.get("delete");
 		if (del) del.toggleClass("is-hidden", !this.selection.size);
 		if (this.swatchRow) {
@@ -1507,10 +1878,10 @@ function diskPathOfUpload(f: File): string | undefined {
 export function parseBoard(data: string): BoardDoc {
 	try {
 		const d = JSON.parse(data || "{}");
-		return { elements: Array.isArray(d.elements) ? d.elements : [], bg: d.bg ?? "grid" };
+		return { elements: Array.isArray(d.elements) ? d.elements : [], bg: d.bg ?? "grid", ...(Array.isArray(d.layers) && d.layers.length ? { layers: d.layers, active: d.active } : {}) };
 	} catch {
 		return { elements: [], bg: "grid" };
 	}
 }
-export const serializeBoard = (d: BoardDoc) => JSON.stringify({ type: "math-studio-board", version: 1, bg: d.bg, elements: d.elements });
+export const serializeBoard = (d: BoardDoc) => JSON.stringify({ type: "math-studio-board", version: 1, bg: d.bg, layers: d.layers, active: d.active, elements: d.elements });
 export { MATH_GROUPS };
