@@ -407,3 +407,38 @@ col.ms-rowhead-col { width: 44px; }
 .bb-img-bar { position: fixed; z-index: var(--layer-popover); display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: var(--shadow-s); }
 .bb-img-bar .is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
 .bb-img-tip { color: var(--text-faint); font-size: var(--font-ui-smaller); padding: 0 6px; white-space: nowrap; }
+
+/* ---- citations tab ---- */
+.bb-cite { padding: 16px 20px; }
+.bb-cite-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.bb-cite-top h2 { margin: 0; flex: 1; }
+.bb-cite-body { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 24px; align-items: start; }
+.is-mobile .bb-cite-body, .bb-cite-body:has(> :only-child) { grid-template-columns: 1fr; }
+@media (max-width: 760px) { .bb-cite-body { grid-template-columns: 1fr; } }
+.bb-cite-form { display: flex; flex-wrap: wrap; gap: 10px 12px; padding: 14px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-secondary); }
+.bb-cite-kinds { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.bb-cite-kinds button { font-size: var(--font-ui-small); }
+.bb-cite-kinds button.is-active { background: var(--interactive-accent); color: var(--text-on-accent); }
+.bb-cite-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; min-width: 0; }
+.bb-cite-field.is-wide { flex-basis: 100%; }
+.bb-cite-field label, .bb-cite-label { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+.bb-cite-field input, .bb-cite-field textarea, .bb-cite-field select { width: 100%; }
+.bb-cite-field .bb-cite-check { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: var(--font-ui-small); color: var(--text-normal); }
+.bb-cite-field .bb-cite-check input { width: var(--checkbox-size, 16px); height: var(--checkbox-size, 16px); flex: none; margin: 0; }
+.bb-cite-urlrow { display: flex; align-items: flex-end; gap: 8px; width: 100%; }
+.bb-cite-urlrow button { flex-shrink: 0; }
+.bb-cite-date { display: flex; gap: 6px; }
+.bb-cite-date input { width: 80px; }
+.bb-cite-label { width: 100%; margin-top: 4px; }
+.bb-cite-preview { width: 100%; padding: 10px 12px; border-radius: 8px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); line-height: 1.5; user-select: text; }
+.bb-cite-actions { display: flex; gap: 8px; width: 100%; }
+.bb-cite-listbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.bb-cite-listbar button { display: inline-flex; align-items: center; gap: 6px; }
+.bb-cite-btn-icon { display: inline-flex; }
+.bb-cite-btn-icon svg { width: 16px; height: 16px; }
+.bb-cite-count { flex: 1; color: var(--text-muted); font-size: var(--font-ui-small); min-width: 140px; }
+.bb-cite-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 10px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.bb-cite-ref { padding-left: 2em; text-indent: -2em; line-height: 1.5; user-select: text; overflow-wrap: anywhere; }
+.bb-cite-intext { grid-column: 1; color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 4px; }
+.bb-cite-tools { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 2px; align-items: flex-start; }
+.bb-cite-empty, .bb-cite-faint { color: var(--text-faint); }

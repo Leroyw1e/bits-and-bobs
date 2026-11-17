@@ -55,6 +55,13 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Drop photos on the file list and they become one new note showing them all (named after the photo, or **Photos** and the date for several). iPhone HEIC photos are turned into JPEGs so they show on every device.
 - Dropping anything else on the file list works as normal.
 
+### Citations
+- A citation maker in its own tab: press the quote button in the left ribbon, or run **Open citations**.
+- Choose **Website**, **Book**, **Journal article**, **Video** or **Newspaper or magazine** and fill in the details, or paste a web address and press **Fill in from link** to fill them in for you.
+- Pick **APA 7**, **MLA 9**, **Harvard** or **Chicago**. Your list is kept in alphabetical order and changes style straight away.
+- Each citation shows its in-text version too, like (Smith, 2023), with buttons to copy, change or delete it.
+- **Copy all** copies the whole list with the italics kept, ready to paste into Word, Google Docs or PowerPoint. **Add to slides** adds References slides to one of your decks, and **Add to note** puts a References section at the end of a note.
+
 ### Pictures and tags in notes
 - **Move pictures and wrap text around them**: in Live Preview, click a picture for buttons to put it on the left or right with text flowing beside it, centre it, or make it bigger or smaller. Drag a picture to move it to another line. The choice is saved in the link (for example `![[photo.jpg|left|300]]`), so it looks the same in Reading view.
 - **Folder tags**: new notes and notes you move get tags for the folders they're in. A note in `School work/Maths` gets `#school-work` and `#maths`, and when it moves the old folder tags come off. Run **Tag all notes with their folders** to add them to the notes you already have (it asks first).
@@ -93,7 +100,7 @@ Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon b
 - **Spreadsheets** keep your values, formulas, sheets, row and column sizes, and number formats in the Excel file. Bold, italic, colours, alignment and charts are saved on an extra hidden sheet named `__bits_meta` inside the file, so Excel won't show them. Cell colours made in Excel itself are not read.
 - **Slides** use their own format, and `.pptx` files can't be opened.
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
-- **Privacy**: no network requests, no telemetry and no accounts. Everything stays in your vault.
+- **Privacy**: no telemetry and no accounts. The only network request is when you press **Fill in from link** in Citations, which reads that one web page. Everything else stays in your vault.
 
 ## Installing manually
 

@@ -18,6 +18,7 @@ import { openChartDialog, specToData } from "./chartdialog";
 import { renderChart, svgToPng } from "./charts";
 import { TagAllModal, syncFolderTags } from "./foldertags";
 import { setupImageTools } from "./imagetools";
+import { CiteView, VIEW_CITE } from "./cite";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
@@ -110,6 +111,11 @@ export default class BitsAndBobs extends Plugin {
 		});
 		// the symbols menu lives in the left sidebar
 		this.registerView(VIEW_SYMBOLS, (leaf) => new SymbolsView(leaf, this));
+		if (st.citeTool) {
+			this.registerView(VIEW_CITE, (leaf) => new CiteView(leaf, this));
+			if (st.ribbon) this.addRibbonIcon("quote", "Citations", () => { void this.openCitations(); });
+			this.addCommand({ id: "open-citations", name: "Open citations", icon: "quote", callback: () => { void this.openCitations(); } });
+		}
 		this.addCommand({ id: "open-symbols", name: "Open the symbols menu", icon: "pi", callback: () => this.openSymbols(0) });
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this.trackTarget(leaf)));
 		// type ^ for small raised numbers, and = to solve a sum
@@ -423,6 +429,15 @@ export default class BitsAndBobs extends Plugin {
 			e.preventDefault(); e.stopPropagation();
 			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
 		}
+	}
+
+	// ---------- citations ----------
+	async openCitations() {
+		const ws = this.app.workspace;
+		const existing = ws.getLeavesOfType(VIEW_CITE)[0];
+		const leaf = existing ?? ws.getLeaf("tab");
+		if (!existing) await leaf.setViewState({ type: VIEW_CITE, active: true });
+		await ws.revealLeaf(leaf);
 	}
 
 	// ---------- PDFs into notes ----------

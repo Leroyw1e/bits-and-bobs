@@ -54,7 +54,7 @@ export function parseDeck(data: string): Deck {
 		return { w: 1600, h: 900, slides: [newSlide("title")] };
 	}
 }
-const serializeDeck = (d: Deck) => JSON.stringify({ type: "math-studio-slides", version: 1, ...d });
+export const serializeDeck = (d: Deck) => JSON.stringify({ type: "math-studio-slides", version: 1, ...d });
 
 export function newSlide(layout = "content"): Slide {
 	const l = LAYOUTS.find((x) => x.id === layout) ?? LAYOUTS[1];
