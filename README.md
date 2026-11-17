@@ -66,6 +66,15 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Move pictures and wrap text around them**: in Live Preview, click a picture for buttons to put it on the left or right with text flowing beside it, centre it, or make it bigger or smaller. Drag a picture to move it to another line. The choice is saved in the link (for example `![[photo.jpg|left|300]]`), so it looks the same in Reading view.
 - **Folder tags**: new notes and notes you move get tags for the folders they're in. A note in `School work/Maths` gets `#school-work` and `#maths`, and when it moves the old folder tags come off. Run **Tag all notes with their folders** to add them to the notes you already have (it asks first).
 
+### Cloud sync (optional)
+- **Sign in with your account**: in **Settings → Bits and Bobs → Cloud sync**, press **Sign in**. Your browser opens the Account sign-in page (passkey, email or an auth code), then comes back to Obsidian. If Obsidian doesn't open by itself, paste the code shown on the page into **Use code**.
+- **Choose what to sync**: add the folders or files you want (or the whole vault). Nothing is synced until you choose something.
+- **Sync now**, or turn on **Sync automatically** to sync when Obsidian opens, every 5 minutes, and shortly after you change a synced file. Sign in on your other devices with the same account to get the same files.
+- **Citations** sync too, so your citation list is the same everywhere.
+- If a file was changed on two devices before syncing, both copies are kept: the other device's copy is saved next to it as `name (other device date).md`.
+- Deleting a synced file on one device moves it to the trash on the others.
+- Each account can store up to 2 GB, and single files up to 60 MB. A sign-in lasts 30 days, then you sign in again.
+
 ### Canvas and embeds
 - Run **Add a drawing card to this canvas** and draw straight onto the card.
 - Embed a board, deck or spreadsheet in a note with `![[file.mboard]]` to show it in place.
@@ -100,7 +109,9 @@ Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon b
 - **Spreadsheets** keep your values, formulas, sheets, row and column sizes, and number formats in the Excel file. Bold, italic, colours, alignment and charts are saved on an extra hidden sheet named `__bits_meta` inside the file, so Excel won't show them. Cell colours made in Excel itself are not read.
 - **Slides** use their own format, and `.pptx` files can't be opened.
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
-- **Privacy**: no telemetry and no accounts. The only network request is when you press **Fill in from link** in Citations, which reads that one web page. Everything else stays in your vault.
+- **Privacy**: no telemetry, and nothing is sent anywhere unless you use one of these:
+  - **Fill in from link** in Citations reads that one web page.
+  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `bits-sync.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your account so your other devices can get them. Signing in happens on `account.leroyw1e.workers.dev`; the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. **Delete everything in the cloud** removes your copy from the server, and **Sign out** ends the sign-in.
 
 ## Installing manually
 

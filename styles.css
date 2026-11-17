@@ -442,3 +442,7 @@ col.ms-rowhead-col { width: 44px; }
 .bb-cite-intext { grid-column: 1; color: var(--text-muted); font-size: var(--font-ui-smaller); margin-top: 4px; }
 .bb-cite-tools { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 2px; align-items: flex-start; }
 .bb-cite-empty, .bb-cite-faint { color: var(--text-faint); }
+
+/* cloud sync: chosen folders and files sit under their heading */
+.bb-sync-path { padding-left: var(--size-4-6); border-top: none; }
+.bb-sync-path .setting-item-name { font-family: var(--font-monospace); font-size: var(--font-ui-small); }

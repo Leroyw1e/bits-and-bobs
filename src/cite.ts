@@ -34,7 +34,9 @@ export class CiteView extends ItemView {
 
 	private get style(): CiteStyle { return this.plugin.settings.citeStyle; }
 	private get list(): Citation[] { return this.plugin.settings.citations; }
-	private save() { void this.plugin.saveSettings(); }
+	private save() { void this.plugin.saveSettings(); this.plugin.cloud.citationsChanged(); }
+	/** redraw after cloud sync changes the list */
+	refresh() { this.renderList(); }
 
 	async onOpen() {
 		const c = this.contentEl;

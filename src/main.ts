@@ -19,6 +19,7 @@ import { renderChart, svgToPng } from "./charts";
 import { TagAllModal, syncFolderTags } from "./foldertags";
 import { setupImageTools } from "./imagetools";
 import { CiteView, VIEW_CITE } from "./cite";
+import { CloudSync, DEFAULT_SYNC } from "./sync";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
@@ -26,6 +27,7 @@ const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt
 
 export default class BitsAndBobs extends Plugin {
 	settings!: BitsSettings;
+	cloud = new CloudSync(this);
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
@@ -35,6 +37,8 @@ export default class BitsAndBobs extends Plugin {
 
 	async onload() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
+		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
+		this.settings.sync.paths = [...this.settings.sync.paths];
 		const st = this.settings;
 		setShortcutsEnabled(st.mathShortcuts);
 
@@ -159,6 +163,7 @@ export default class BitsAndBobs extends Plugin {
 		});
 
 		this.addSettingTab(new BitsSettingTab(this.app, this));
+		this.cloud.start();
 	}
 
 	private onUndoKey(e: KeyboardEvent) {
