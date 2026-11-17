@@ -140,6 +140,7 @@ export class CloudSync {
 	}
 
 	async signOut() {
+		this.plugin.source.select("");
 		const token = this.s.token;
 		this.s.token = "";
 		this.s.user = null;
@@ -152,7 +153,8 @@ export class CloudSync {
 		}
 	}
 
-	private async signedOutByServer() {
+	/** The server said the sign-in has ended. */
+	async handleSignedOut() {
 		this.s.token = "";
 		this.s.user = null;
 		await this.plugin.saveSettings();
@@ -169,7 +171,7 @@ export class CloudSync {
 			headers: { authorization: `Bearer ${this.s.token}` }, throw: false,
 		});
 		if (r.status === 401) {
-			await this.signedOutByServer();
+			await this.handleSignedOut();
 			throw new SignedOutError("Your sign-in has ended. Sign in again in Bits and Bobs settings.");
 		}
 		if (r.status >= 400) {
@@ -289,6 +291,7 @@ export class CloudSync {
 		const st = await this.loadState();
 
 		if (this.s.paths.length) await this.syncFiles(st, res);
+		await this.plugin.source.sync();
 		if (this.s.citations) {
 			try { res.citations = await this.syncCitations(st); }
 			catch (e) { if (e instanceof SignedOutError) throw e; res.errors.push(`Citations: ${(e as Error).message}`); }
@@ -396,8 +399,9 @@ export class CloudSync {
 
 	// ---------- citations ----------
 
+	/** the list that lives in Obsidian (Source lists sync with the Source website instead) */
 	private getCitations(): Citation[] {
-		const c = this.plugin.settings.citations;
+		const c = this.plugin.source.getLocal();
 		return Array.isArray(c) ? c : [];
 	}
 
@@ -426,7 +430,7 @@ export class CloudSync {
 		let changedHere = false;
 		if (out !== JSON.stringify(remote)) await this.api("/api/citations", { method: "PUT", body: JSON.stringify({ items: merged }), contentType: "application/json" });
 		if (out !== JSON.stringify(local)) {
-			this.plugin.settings.citations = merged;
+			this.plugin.source.setLocal(merged);
 			await this.plugin.saveSettings();
 			for (const leaf of this.plugin.app.workspace.getLeavesOfType(VIEW_CITE)) {
 				if (leaf.view instanceof CiteView) leaf.view.refresh();

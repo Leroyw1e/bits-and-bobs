@@ -61,6 +61,7 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Pick **APA 7**, **MLA 9**, **Harvard** or **Chicago**. Your list is kept in alphabetical order and changes style straight away.
 - Each citation shows its in-text version too, like (Smith, 2023), with buttons to copy, change or delete it.
 - **Copy all** copies the whole list with the italics kept, ready to paste into Word, Google Docs or PowerPoint. **Add to slides** adds References slides to one of your decks, and **Add to note** puts a References section at the end of a note.
+- **Your Source lists**: when you're signed in (see Cloud sync below), the list menu at the top of the Citations tab shows your lists from the [Source](https://source.leroyw1e.workers.dev) website. Pick one to see and change it here; changes save to Source within a couple of seconds, and changes made on the website show up here within a minute (or press the sync button). **New Source list…** makes a list that also appears on the website, and the bin button deletes the open list in both places. **In Obsidian** is the list that only lives in this vault.
 
 ### Pictures and tags in notes
 - **Move pictures and wrap text around them**: in Live Preview, click a picture for buttons to put it on the left or right with text flowing beside it, centre it, or make it bigger or smaller. Drag a picture to move it to another line. The choice is saved in the link (for example `![[photo.jpg|left|300]]`), so it looks the same in Reading view.
@@ -111,7 +112,7 @@ Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon b
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
 - **Privacy**: no telemetry, and nothing is sent anywhere unless you use one of these:
   - **Fill in from link** in Citations reads that one web page.
-  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `bits-sync.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your account so your other devices can get them. Signing in happens on `account.leroyw1e.workers.dev`; the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. **Delete everything in the cloud** removes your copy from the server, and **Sign out** ends the sign-in.
+  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `bits-sync.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your account so your other devices can get them. While you're signed in, the Citations tab also reads and saves your Source citation lists at `source.leroyw1e.workers.dev` (the Source website) when it's open or when you press Sync now. Signing in happens on `account.leroyw1e.workers.dev`; the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. **Delete everything in the cloud** removes your copy from the server, and **Sign out** ends the sign-in.
 
 ## Installing manually
 

@@ -6,6 +6,7 @@ import type { PdfNoteStyle } from "./pdfnote";
 import { TagAllModal } from "./foldertags";
 import type { Citation, CiteStyle } from "./citeformat";
 import { DEFAULT_SYNC, type SyncSettings } from "./sync";
+import { DEFAULT_SOURCE, type SourceState } from "./sourcelists";
 import { renderSyncSettings } from "./syncsettings";
 
 export interface BitsSettings {
@@ -70,6 +71,7 @@ export interface BitsSettings {
 	pdfNoteStyle: PdfNoteStyle;
 	newFileFolder: string;
 	sync: SyncSettings;
+	source: SourceState;
 }
 
 export const DEFAULT_SETTINGS: BitsSettings = {
@@ -79,7 +81,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC,
+	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE,
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];

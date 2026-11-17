@@ -20,6 +20,7 @@ import { TagAllModal, syncFolderTags } from "./foldertags";
 import { setupImageTools } from "./imagetools";
 import { CiteView, VIEW_CITE } from "./cite";
 import { CloudSync, DEFAULT_SYNC } from "./sync";
+import { DEFAULT_SOURCE, SourceLists, type SourceState } from "./sourcelists";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
@@ -28,6 +29,7 @@ const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt
 export default class BitsAndBobs extends Plugin {
 	settings!: BitsSettings;
 	cloud = new CloudSync(this);
+	source = new SourceLists(this);
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
@@ -39,6 +41,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
 		this.settings.sync.paths = [...this.settings.sync.paths];
+		this.settings.source = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SOURCE)) as SourceState, this.settings.source);
 		const st = this.settings;
 		setShortcutsEnabled(st.mathShortcuts);
 
@@ -164,6 +167,7 @@ export default class BitsAndBobs extends Plugin {
 
 		this.addSettingTab(new BitsSettingTab(this.app, this));
 		this.cloud.start();
+		this.source.start();
 	}
 
 	private onUndoKey(e: KeyboardEvent) {

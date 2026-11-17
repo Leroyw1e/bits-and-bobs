@@ -1,4 +1,4 @@
-import { App, ItemView, Notice, SuggestModal, TFile, WorkspaceLeaf, requestUrl, setIcon } from "obsidian";
+import { App, ItemView, Modal, Notice, Setting, SuggestModal, TFile, WorkspaceLeaf, requestUrl, setIcon } from "obsidian";
 import type BitsAndBobs from "./main";
 import { Citation, CiteStyle, KIND_NAMES, STYLE_NAMES, SourceKind, formatCitation, inText, sortKey, toHtml, toPlain } from "./citeformat";
 import { parseDeck, serializeDeck, EXT_SLIDES } from "./views";
@@ -34,9 +34,56 @@ export class CiteView extends ItemView {
 
 	private get style(): CiteStyle { return this.plugin.settings.citeStyle; }
 	private get list(): Citation[] { return this.plugin.settings.citations; }
-	private save() { void this.plugin.saveSettings(); this.plugin.cloud.citationsChanged(); }
+	private save() { void this.plugin.saveSettings(); this.plugin.source.localEdit(); }
+	private styleSel!: HTMLSelectElement;
+	private pickEl!: HTMLElement;
 	/** redraw after cloud sync changes the list */
-	refresh() { this.renderList(); }
+	refresh() {
+		if (this.styleSel) this.styleSel.value = this.style;
+		this.renderPicker();
+		this.renderList();
+	}
+
+	/** The list picker (In Obsidian, or one of your Source lists) and the sync status. */
+	private renderPicker() {
+		const el = this.pickEl, src = this.plugin.source;
+		if (!el) return;
+		el.empty();
+		if (!src.signedIn) return;
+		const st = this.plugin.settings.source;
+		const sel = el.createEl("select", { cls: "dropdown bb-cite-pick", attr: { "aria-label": "Citation list" } });
+		sel.createEl("option", { value: "", text: "In Obsidian" });
+		if (st.lists.length) {
+			const g = sel.createEl("optgroup", { attr: { label: "Source lists" } });
+			for (const l of st.lists) g.createEl("option", { value: l.id, text: `${l.name || "Untitled list"} (${l.items.length})` });
+		}
+		sel.createEl("option", { value: "__new", text: "New Source list…" });
+		sel.value = st.active;
+		sel.onchange = () => {
+			if (sel.value === "__new") {
+				sel.value = st.active;
+				new NameModal(this.app, (name) => src.newList(name)).open();
+				return;
+			}
+			src.select(sel.value);
+		};
+		if (st.active) {
+			const del = el.createEl("button", { cls: "clickable-icon bb-cite-iconbtn", attr: { "aria-label": "Delete this list" } });
+			setIcon(del, "trash-2");
+			del.onclick = () => {
+				const l = src.activeList;
+				if (!l) return;
+				new ConfirmDelete(this.app, l.name || "Untitled list", () => src.deleteList(l.id)).open();
+			};
+		}
+		const status = el.createSpan({ cls: "bb-cite-sync" });
+		const text: Record<string, string> = { ok: "Synced", saving: "Saving…", offline: "Offline", signin: "Sign in to sync" };
+		status.setText(st.active || src.status !== "ok" ? text[src.status] : "");
+		status.toggleClass("is-offline", src.status === "offline");
+		const again = el.createEl("button", { cls: "clickable-icon bb-cite-iconbtn", attr: { "aria-label": "Sync with Source now" } });
+		setIcon(again, "refresh-cw");
+		again.onclick = () => { void src.sync(); };
+	}
 
 	async onOpen() {
 		const c = this.contentEl;
@@ -47,6 +94,11 @@ export class CiteView extends ItemView {
 		const styleSel = top.createEl("select", { cls: "dropdown bb-cite-style", attr: { "aria-label": "Referencing style" } });
 		for (const [k, v] of Object.entries(STYLE_NAMES)) styleSel.createEl("option", { value: k, text: v });
 		styleSel.value = this.style;
+		this.styleSel = styleSel;
+		this.pickEl = top.createDiv("bb-cite-picker");
+		this.renderPicker();
+		if (!this.unsub) this.unsub = this.plugin.source.onChange(() => this.refresh());
+		if (this.plugin.source.signedIn) void this.plugin.source.sync();
 		styleSel.onchange = () => { this.plugin.settings.citeStyle = styleSel.value as CiteStyle; this.save(); this.renderPreview(); this.renderList(); };
 
 		const body = c.createDiv("bb-cite-body");
@@ -82,7 +134,8 @@ export class CiteView extends ItemView {
 		this.renderList();
 	}
 
-	async onClose() { this.contentEl.empty(); }
+	private unsub: (() => void) | null = null;
+	async onClose() { this.unsub?.(); this.unsub = null; this.contentEl.empty(); }
 
 	/** Opens a citation for changing (used by the list's edit button). */
 	private edit(c: Citation) {
@@ -380,4 +433,33 @@ async function fillFromLink(f: Citation) {
 	const pub = meta("citation_publisher", "dc.publisher")[0];
 	if (pub) f.publisher = pub;
 	f.accessed = today();
+}
+
+/** Ask for a name for a new Source list. */
+class NameModal extends Modal {
+	constructor(app: App, private done: (name: string) => void) { super(app); }
+	onOpen() {
+		this.setTitle("New Source list");
+		let name = "";
+		const go = () => { if (name.trim()) { this.close(); this.done(name); } };
+		new Setting(this.contentEl).setName("Name").addText((t) => {
+			t.setPlaceholder("Example: History essay").onChange((v) => { name = v; });
+			t.inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+			window.setTimeout(() => t.inputEl.focus(), 0);
+		});
+		new Setting(this.contentEl).addButton((b) => b.setButtonText("Make list").setCta().onClick(go));
+	}
+	onClose() { this.contentEl.empty(); }
+}
+
+class ConfirmDelete extends Modal {
+	constructor(app: App, private name: string, private run: () => void) { super(app); }
+	onOpen() {
+		this.setTitle(`Delete "${this.name}"?`);
+		this.contentEl.createEl("p", { text: "This list and its citations are deleted here and on the Source website." });
+		new Setting(this.contentEl)
+			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
+			.addButton((b) => b.setButtonText("Delete").setClass("mod-warning").onClick(() => { this.close(); this.run(); }));
+	}
+	onClose() { this.contentEl.empty(); }
 }

@@ -446,3 +446,11 @@ col.ms-rowhead-col { width: 44px; }
 /* cloud sync: chosen folders and files sit under their heading */
 .bb-sync-path { padding-left: var(--size-4-6); border-top: none; }
 .bb-sync-path .setting-item-name { font-family: var(--font-monospace); font-size: var(--font-ui-small); }
+
+/* citations: Source list picker and sync status */
+.bb-cite-top { flex-wrap: wrap; }
+.bb-cite-picker { display: flex; align-items: center; gap: 4px; }
+.bb-cite-picker:empty { display: none; }
+.bb-cite-pick { max-width: 220px; }
+.bb-cite-sync { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-left: 4px; }
+.bb-cite-sync.is-offline { color: var(--text-error); }
