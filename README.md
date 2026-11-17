@@ -36,6 +36,20 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Function suggestions as you type a formula, AutoSum, click a cell to add it to a formula, multiple sheets, copy and paste, and copy as a Markdown table.
 - A switch for keyboard autocorrect and predictions.
 
+### Share as a link
+- Share any note, drawing board, slide deck, spreadsheet, PDF or picture as a web link: right-click it in the file list and choose **Share as a link**, press the share button at the top of a board or deck (or **Share** in a spreadsheet's toolbar), or run **Share this file as a link**. You need to be signed in with Keyring (see Cloud sync).
+- Choose **Keep it up to date with my changes** or **Share a copy of it as it is now**, then press **Make link and copy it** and send the link to anyone. Links live at [obsidian.leroyw1e.workers.dev](https://obsidian.leroyw1e.workers.dev) and open in any web browser, phones too.
+- What people see:
+  - **Notes**: formatted, with maths, pictures, tables, callouts and highlights. Links to your other notes show as plain text.
+  - **Boards**: drawn exactly as they look, with pan and zoom.
+  - **Slides**: one slide at a time with **Next** and **Back** (or the arrow keys, or a swipe), in the deck's theme with its transitions.
+  - **Spreadsheets**: formulas worked out, colours, bold, alignment, number formats and sheet tabs. Charts aren't shown online.
+  - **PDFs and pictures**: shown in the page, with a download button for PDFs.
+- Everything is **view only**, except spreadsheets, where you can also choose **Edit**. People change cells with the box at the top of the page. For a spreadsheet that's kept up to date, their changes come back into your spreadsheet within about 20 seconds while it's open (and on **Sync now**), and you get a message saying so. If a cell is changed in both places, the newest change wins. On a copy, their changes stay online only.
+- **Editors must sign in** (spreadsheets, optional): anyone can still look, but only people signed in with Keyring can make changes. Leave it off if you want anyone with the link to be able to edit.
+- **Shared links** in the Share menu, and **Shared links** in settings, list your links with **Copy link**, **Change options** and **Stop sharing**. Stopping sharing turns the link off straight away.
+- Links are long and random, so they can't be guessed, but anyone you send a link to can pass it on.
+
 ### Maths in notes
 - Keyboard shortcuts for common maths (see below). You can turn them off in settings.
 - Type `\` then a name, such as `\alpha`, `\frac` or `\int`, to search symbols with a live preview.
@@ -68,13 +82,13 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - **Folder tags**: new notes and notes you move get tags for the folders they're in. A note in `School work/Maths` gets `#school-work` and `#maths`, and when it moves the old folder tags come off. Run **Tag all notes with their folders** to add them to the notes you already have (it asks first).
 
 ### Cloud sync (optional)
-- **Sign in with your account**: in **Settings → Bits and Bobs → Cloud sync**, press **Sign in**. Your browser opens the Account sign-in page (passkey, email or an auth code), then comes back to Obsidian. If Obsidian doesn't open by itself, paste the code shown on the page into **Use code**.
+- **Sign in with Keyring**: in **Settings → Bits and Bobs → Cloud sync**, press **Sign in with Keyring**. Your browser opens the Keyring sign-in page (passkey, email or an auth code), then comes back to Obsidian. If Obsidian doesn't open by itself, paste the code shown on the page into **Use code**.
 - **Choose what to sync**: add the folders or files you want (or the whole vault). Nothing is synced until you choose something.
 - **Sync now**, or turn on **Sync automatically** to sync when Obsidian opens, every 5 minutes, and shortly after you change a synced file. Sign in on your other devices with the same account to get the same files.
 - **Citations** sync too, so your citation list is the same everywhere.
 - If a file was changed on two devices before syncing, both copies are kept: the other device's copy is saved next to it as `name (other device date).md`.
 - Deleting a synced file on one device moves it to the trash on the others.
-- Each account can store up to 2 GB, and single files up to 60 MB. A sign-in lasts 30 days, then you sign in again.
+- Each Keyring account can store up to 2 GB, and single files up to 60 MB. A sign-in lasts 30 days, then you sign in again.
 
 ### Canvas and embeds
 - Run **Add a drawing card to this canvas** and draw straight onto the card.
@@ -112,7 +126,11 @@ Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon b
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
 - **Privacy**: no telemetry, and nothing is sent anywhere unless you use one of these:
   - **Fill in from link** in Citations reads that one web page.
-  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `bits-sync.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your account so your other devices can get them. While you're signed in, the Citations tab also reads and saves your Source citation lists at `source.leroyw1e.workers.dev` (the Source website) when it's open or when you press Sync now. Signing in happens on `account.leroyw1e.workers.dev`; the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. **Delete everything in the cloud** removes your copy from the server, and **Sign out** ends the sign-in.
+  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `obsidian.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your Keyring account so your other devices can get them. While you're signed in, the Citations tab also reads and saves your Source citation lists at `source.leroyw1e.workers.dev` (the Source website) when it's open or when you press Sync now. Signing in happens on Keyring (`account.leroyw1e.workers.dev`); the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. If you share something as a link, a copy of it (and any pictures it shows) is stored on the same server so the link works, and anyone with the link can see it; **Stop sharing** deletes it from the server. Shared pages load their Markdown, maths and PDF viewers from jsDelivr. **Delete everything in the cloud** removes your copy from the server (shared links too), and **Sign out** ends the sign-in.
+
+## More plugins
+
+All my Obsidian plugins, with what they do and where to get them, are at [obsidian.leroyw1e.workers.dev](https://obsidian.leroyw1e.workers.dev).
 
 ## Installing manually
 

@@ -13,7 +13,7 @@ import type { Citation } from "./citeformat";
 import { CiteView, VIEW_CITE } from "./cite";
 
 export const ACCOUNT_URL = "https://account.leroyw1e.workers.dev";
-export const SYNC_URL = "https://bits-sync.leroyw1e.workers.dev";
+export const SYNC_URL = "https://obsidian.leroyw1e.workers.dev";
 export const PROTOCOL_ACTION = "bits-and-bobs-sync";
 
 export interface SyncUser { id: string; email: string; name: string }
@@ -121,7 +121,7 @@ export class CloudSync {
 			});
 			const d = r.json as { token?: string; expires?: number; user?: SyncUser; error?: string };
 			if (r.status !== 200 || !d.token || !d.user) {
-				new Notice(d.error ?? "Couldn't sign in. Try again.");
+				new Notice(d.error ?? "Couldn't sign in with Keyring. Try again.");
 				return false;
 			}
 			this.verifier = "";
@@ -129,7 +129,7 @@ export class CloudSync {
 			this.s.user = d.user;
 			this.s.expires = d.expires ?? 0;
 			await this.plugin.saveSettings();
-			new Notice(`Signed in as ${d.user.name || d.user.email}`);
+			new Notice(`Signed in to Keyring as ${d.user.name || d.user.email}`);
 			this.applyAuto();
 			this.onChange?.();
 			return true;
@@ -164,15 +164,15 @@ export class CloudSync {
 
 	// ---------- network ----------
 
-	private async api(path: string, opts: { method?: string; body?: string | ArrayBuffer; contentType?: string } = {}): Promise<RequestUrlResponse> {
-		if (!this.s.token) throw new SignedOutError("Sign in first.");
+	async api(path: string, opts: { method?: string; body?: string | ArrayBuffer; contentType?: string } = {}): Promise<RequestUrlResponse> {
+		if (!this.s.token) throw new SignedOutError("Sign in with Keyring first.");
 		const r = await requestUrl({
 			url: this.base + path, method: opts.method ?? "GET", body: opts.body, contentType: opts.contentType,
 			headers: { authorization: `Bearer ${this.s.token}` }, throw: false,
 		});
 		if (r.status === 401) {
 			await this.handleSignedOut();
-			throw new SignedOutError("Your sign-in has ended. Sign in again in Bits and Bobs settings.");
+			throw new SignedOutError("Your Keyring sign-in has ended. Sign in again in Bits and Bobs settings.");
 		}
 		if (r.status >= 400) {
 			let msg = `The sync server said ${r.status}.`;
@@ -192,6 +192,8 @@ export class CloudSync {
 
 	async deleteEverything() {
 		await this.api("/api/everything", { method: "DELETE" });
+		this.plugin.settings.shares = [];
+		await this.plugin.saveSettings();
 		const st = await this.loadState();
 		st.files = {};
 		st.citations = {};
@@ -292,6 +294,7 @@ export class CloudSync {
 
 		if (this.s.paths.length) await this.syncFiles(st, res);
 		await this.plugin.source.sync();
+		try { await this.plugin.shares.syncAll(); } catch (e) { res.errors.push(`Shared links: ${(e as Error).message}`); }
 		if (this.s.citations) {
 			try { res.citations = await this.syncCitations(st); }
 			catch (e) { if (e instanceof SignedOutError) throw e; res.errors.push(`Citations: ${(e as Error).message}`); }

@@ -204,7 +204,24 @@ export class SheetView extends FileView {
 		window.clearTimeout(this.saveTimer);
 		this.saveTimer = window.setTimeout(() => { void this.flush(); }, 700);
 	}
-	private async flush() {
+	/** Put cell changes (from a shared link) into this open spreadsheet and save, without reloading it. */
+	async applyCells(changes: [string, string][]) {
+		if (!this.book) return;
+		this.commitEdit();
+		for (const [key, raw] of changes) {
+			const i = key.lastIndexOf("!");
+			const sheet = this.book.sheets.find((x) => x.name === key.slice(0, i));
+			if (!sheet) continue;
+			const ref = key.slice(i + 1);
+			if (raw === "") sheet.raw.delete(ref); else sheet.raw.set(ref, raw);
+		}
+		this.book.invalidate();
+		this.build();
+		this.scheduleSave();
+		await this.flush();
+	}
+
+	async flush() {
 		if (!this.saveTimer || !this.book || !this.file) return;
 		window.clearTimeout(this.saveTimer); this.saveTimer = 0;
 		this.writing = true;
@@ -265,6 +282,7 @@ export class SheetView extends FileView {
 		btn("undo-2", "Undo (⌘Z)", () => this.restore(this.undoStack, this.redoStack));
 		btn("redo-2", "Redo (⇧⌘Z)", () => this.restore(this.redoStack, this.undoStack));
 		btn("clipboard-copy", "Copy selection as a Markdown table", () => { void this.copyMarkdown(); });
+		btn("share-2", "Share online as a link", () => { if (this.file) this.plugin.openShare(this.file); }, "Share");
 		const st = this.plugin.settings;
 		const ac = btn("spell-check", "Autocorrect & keyboard predictions (on/off)", () => {
 			st.sheetAutocorrect = !st.sheetAutocorrect; void this.plugin.saveSettings();

@@ -13,7 +13,10 @@ export const EXT_SLIDES = "mslides";
 export class BoardView extends TextFileView {
 	board: Board | null = null;
 	private lastData = "";
-	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) { super(leaf); }
+	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) {
+		super(leaf);
+		this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
+	}
 	getViewType() { return VIEW_BOARD; }
 	getIcon() { return "pen-tool"; }
 	getDisplayText() { return this.file?.basename ?? "Board"; }
@@ -71,7 +74,10 @@ export class SlidesView extends TextFileView {
 	private thumbs: Component[] = [];
 	private thumbTimer = 0;
 	private notesEl!: HTMLTextAreaElement;
-	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) { super(leaf); }
+	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) {
+		super(leaf);
+		this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
+	}
 	getViewType() { return VIEW_SLIDES; }
 	getIcon() { return "presentation"; }
 	getDisplayText() { return this.file?.basename ?? "Slides"; }

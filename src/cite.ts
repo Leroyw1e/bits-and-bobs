@@ -77,7 +77,7 @@ export class CiteView extends ItemView {
 			};
 		}
 		const status = el.createSpan({ cls: "bb-cite-sync" });
-		const text: Record<string, string> = { ok: "Synced", saving: "Saving…", offline: "Offline", signin: "Sign in to sync" };
+		const text: Record<string, string> = { ok: "Synced", saving: "Saving…", offline: "Offline", signin: "Sign in to Keyring to sync" };
 		status.setText(st.active || src.status !== "ok" ? text[src.status] : "");
 		status.toggleClass("is-offline", src.status === "offline");
 		const again = el.createEl("button", { cls: "clickable-icon bb-cite-iconbtn", attr: { "aria-label": "Sync with Source now" } });

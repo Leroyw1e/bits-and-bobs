@@ -454,3 +454,10 @@ col.ms-rowhead-col { width: 44px; }
 .bb-cite-pick { max-width: 220px; }
 .bb-cite-sync { font-size: var(--font-ui-smaller); color: var(--text-muted); margin-left: 4px; }
 .bb-cite-sync.is-offline { color: var(--text-error); }
+
+/* shared spreadsheet links */
+.bb-share-row .setting-item-name { word-break: break-all; font-size: var(--font-ui-small); }
+
+/* sharing: boards and slides are drawn off screen to copy them for a share link */
+.bb-share-capture { position: fixed; left: -30000px; top: 0; width: 1600px; height: 1200px; pointer-events: none; }
+.bb-share-capture .ms-world.bb-capture-flat { transform: none !important; }

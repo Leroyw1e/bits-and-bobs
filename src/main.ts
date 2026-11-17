@@ -21,6 +21,8 @@ import { setupImageTools } from "./imagetools";
 import { CiteView, VIEW_CITE } from "./cite";
 import { CloudSync, DEFAULT_SYNC } from "./sync";
 import { DEFAULT_SOURCE, SourceLists, type SourceState } from "./sourcelists";
+import { ShareModal, Shares } from "./share";
+import { shareKind } from "./sharecapture";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
 /** Commands added to the iPad / iPhone bottom toolbar. */
@@ -30,6 +32,7 @@ export default class BitsAndBobs extends Plugin {
 	settings!: BitsSettings;
 	cloud = new CloudSync(this);
 	source = new SourceLists(this);
+	shares = new Shares(this);
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
@@ -41,6 +44,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
 		this.settings.sync.paths = [...this.settings.sync.paths];
+		this.settings.shares = Array.isArray(this.settings.shares) ? this.settings.shares.map((l) => ({ ...l })) : [];
 		this.settings.source = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SOURCE)) as SourceState, this.settings.source);
 		const st = this.settings;
 		setShortcutsEnabled(st.mathShortcuts);
@@ -168,6 +172,20 @@ export default class BitsAndBobs extends Plugin {
 		this.addSettingTab(new BitsSettingTab(this.app, this));
 		this.cloud.start();
 		this.source.start();
+		this.shares.start();
+		this.addCommand({
+			id: "share-file", name: "Share this file as a link", icon: "share-2",
+			checkCallback: (check) => {
+				const f = this.app.workspace.getActiveFile();
+				if (!f || !shareKind(f)) return false;
+				if (!check) this.openShare(f);
+				return true;
+			},
+		});
+		this.registerEvent(this.app.workspace.on("file-menu", (menu, f) => {
+			if (!(f instanceof TFile) || !shareKind(f)) return;
+			menu.addItem((i) => i.setTitle("Share as a link").setIcon("share-2").setSection("action").onClick(() => this.openShare(f)));
+		}));
 	}
 
 	private onUndoKey(e: KeyboardEvent) {
@@ -229,6 +247,8 @@ export default class BitsAndBobs extends Plugin {
 	}
 
 	async saveSettings() { await this.saveData(this.settings); }
+
+	openShare(file: TFile) { new ShareModal(this.app, this, file).open(); }
 
 	// ---------- maths commands ----------
 	private addMathCommand(t: MathTool) {

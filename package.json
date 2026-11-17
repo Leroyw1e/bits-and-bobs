@@ -1,12 +1,13 @@
 {
   "name": "bits-and-bobs",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "Obsidian plugin: drawing boards, slides, Excel spreadsheets and maths tools.",
   "main": "main.js",
   "scripts": {
     "build": "tsc -p . && node esbuild.config.mjs",
     "check": "tsc -p .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:web": "esbuild web/sharepage.ts --bundle --minify --format=iife --target=es2020 --outfile=web/dist/share.client.js"
   },
   "license": "MIT",
   "type": "commonjs",

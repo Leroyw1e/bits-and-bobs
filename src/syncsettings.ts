@@ -1,6 +1,7 @@
 import { App, FuzzySuggestModal, Modal, Notice, Setting, TFile, TFolder } from "obsidian";
 import type BitsAndBobs from "./main";
 import { describeResult, SignedOutError } from "./sync";
+import { linkRow } from "./share";
 
 /** Pick a folder or file in the vault to sync. */
 class PathPicker extends FuzzySuggestModal<string> {
@@ -58,9 +59,9 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 
 	if (!cloud.signedIn) {
 		new Setting(containerEl)
-			.setName("Sign in with your account")
+			.setName("Sign in with Keyring")
 			.setDesc("Sign in to copy the folders and files you choose, and your citations, to the cloud so they show up on your other devices. Nothing is sent until you sign in and choose what to sync.")
-			.addButton((b) => b.setButtonText("Sign in").setCta().onClick(() => void cloud.beginSignIn()));
+			.addButton((b) => b.setButtonText("Sign in with Keyring").setCta().onClick(() => void cloud.beginSignIn()));
 		let code = "";
 		new Setting(containerEl)
 			.setName("Obsidian didn't open after signing in?")
@@ -72,8 +73,8 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 		return;
 	}
 
-	const who = s.user ? (s.user.name ? `${s.user.name} (${s.user.email})` : s.user.email) : "your account";
-	const acct = new Setting(containerEl).setName(`Signed in as ${who}`).setDesc("Checking how much you've stored…")
+	const who = s.user ? (s.user.name ? `${s.user.name} (${s.user.email})` : s.user.email) : "you";
+	const acct = new Setting(containerEl).setName(`Signed in to Keyring as ${who}`).setDesc("Checking how much you've stored…")
 		.addButton((b) => b.setButtonText("Sign out").onClick(async () => { await cloud.signOut(); redraw(); }));
 	void cloud.usage().then((u) => { if (u) acct.setDesc(`${u.files} file${u.files === 1 ? "" : "s"} in the cloud, using ${size(u.bytes)} of ${size(u.limit)}.`); else acct.setDesc(""); });
 
@@ -116,10 +117,25 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 				redraw();
 			});
 		});
+	// shared links
+	new Setting(containerEl).setName("Shared links").setHeading();
+	const shareBox = containerEl.createDiv();
+	const drawShares = () => {
+		shareBox.empty();
+		const links = plugin.shares.links;
+		if (!links.length) {
+			shareBox.createDiv({ cls: "setting-item-description ms-note", text: "No shared links yet. Right-click a note, board, deck, spreadsheet, PDF or picture and choose Share as a link." });
+			return;
+		}
+		for (const l of links) linkRow(shareBox, plugin, l, drawShares, true);
+	};
+	drawShares();
+	void plugin.shares.refresh().then(drawShares, () => { /* offline */ });
+
 	new Setting(containerEl).setName("Delete everything in the cloud")
-		.setDesc("Removes your synced files and citations from the cloud. Files on this device are kept.")
+		.setDesc("Removes your synced files, citations and shared links from the cloud. Files on this device are kept.")
 		.addButton((b) => b.setButtonText("Delete").setClass("mod-warning").onClick(() => new ConfirmModal(app, "Delete your cloud copy?",
-			"Your synced files and citations will be removed from the cloud. Nothing on this device is deleted, but other devices won't get updates until you sync again.",
+			"Your synced files, citations and shared links will be removed from the cloud, and the links will stop working. Nothing on this device is deleted, but other devices won't get updates until you sync again.",
 			"Delete", () => {
 				void cloud.deleteEverything().then(() => { new Notice("Cloud copy deleted."); redraw(); }, (e) => new Notice(`Couldn't delete: ${(e as Error).message}`));
 			}).open()));
