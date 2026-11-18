@@ -18,7 +18,14 @@ export const PROTOCOL_ACTION = "bits-and-bobs-sync";
 
 export interface SyncUser { id: string; email: string; name: string }
 
+/** OneDrive connection (see onedrive.ts) */
+export interface OneDriveSettings { clientId: string; refresh: string; access: string; expires: number; name: string }
+export const DEFAULT_OD: OneDriveSettings = { clientId: "", refresh: "", access: "", expires: 0, name: "" };
+
 export interface SyncSettings {
+	/** where synced files are kept: the Keyring cloud, or your own OneDrive */
+	provider: "keyring" | "onedrive";
+	od: OneDriveSettings;
 	token: string;
 	user: SyncUser | null;
 	expires: number;
@@ -29,7 +36,7 @@ export interface SyncSettings {
 	lastSync: number;
 }
 
-export const DEFAULT_SYNC: SyncSettings = { token: "", user: null, expires: 0, paths: [], citations: true, auto: false, lastSync: 0 };
+export const DEFAULT_SYNC: SyncSettings = { provider: "keyring", od: DEFAULT_OD, token: "", user: null, expires: 0, paths: [], citations: true, auto: false, lastSync: 0 };
 
 /** What the files looked like after the last sync, so changes on each side can be told apart. */
 interface SyncState {
@@ -76,6 +83,10 @@ export class CloudSync {
 
 	get s(): SyncSettings { return this.plugin.settings.sync; }
 	get signedIn(): boolean { return !!this.s.token; }
+	/** files can be synced: Keyring signed in, or OneDrive connected, whichever is chosen */
+	get filesReady(): boolean { return this.s.provider === "onedrive" ? this.plugin.onedrive.connected : this.signedIn; }
+	/** something is connected, so auto sync has work to do */
+	get active(): boolean { return this.filesReady || this.signedIn; }
 	get busy(): boolean { return !!this.running; }
 
 	private get statePath(): string {
@@ -95,7 +106,7 @@ export class CloudSync {
 		this.plugin.register(() => this.stopAuto());
 		this.plugin.app.workspace.onLayoutReady(() => {
 			this.applyAuto();
-			if (this.signedIn && this.s.auto && this.hasSomethingToSync()) window.setTimeout(() => void this.syncQuietly(), 4000);
+			if (this.active && this.s.auto && this.hasSomethingToSync()) window.setTimeout(() => void this.syncQuietly(), 4000);
 		});
 	}
 
@@ -202,13 +213,20 @@ export class CloudSync {
 
 	// ---------- what to sync ----------
 
-	hasSomethingToSync(): boolean { return this.s.paths.length > 0 || this.s.citations; }
+	hasSomethingToSync(): boolean { return (this.s.paths.length > 0 && this.filesReady) || (this.s.citations && this.signedIn); }
 
 	inScope(path: string): boolean {
 		const cfg = this.plugin.app.vault.configDir;
 		if (path === cfg || path.startsWith(cfg + "/")) return false;
 		if (path.split("/").some((p) => p.startsWith("."))) return false;
 		return this.s.paths.some((p) => p === "/" || path === p || path.startsWith(p + "/"));
+	}
+
+	/** Could this folder hold (or lead to) a chosen file or folder? */
+	relevantFolder(path: string): boolean {
+		const cfg = this.plugin.app.vault.configDir;
+		if (path === cfg || path.startsWith(cfg + "/") || path.split("/").some((p) => p.startsWith("."))) return false;
+		return this.s.paths.some((p) => p === "/" || p === path || p.startsWith(path + "/") || path.startsWith(p + "/"));
 	}
 
 	private localFiles(): TFile[] {
@@ -219,7 +237,7 @@ export class CloudSync {
 
 	applyAuto() {
 		this.stopAuto();
-		if (!this.signedIn || !this.s.auto) return;
+		if (!this.active || !this.s.auto) return;
 		this.autoTimer = window.setInterval(() => void this.syncQuietly(), AUTO_MINUTES * 60_000);
 	}
 
@@ -231,7 +249,7 @@ export class CloudSync {
 
 	/** With auto sync on, sync about 30 seconds after you stop changing synced files. */
 	private onLocalChange(f: TAbstractFile) {
-		if (!this.signedIn || !this.s.auto || !this.inScope(f.path) || this.running) return;
+		if (!this.active || !this.s.auto || !this.inScope(f.path) || this.running) return;
 		if (this.changeTimer !== null) window.clearTimeout(this.changeTimer);
 		this.changeTimer = window.setTimeout(() => { this.changeTimer = null; void this.syncQuietly(); }, 30_000);
 	}
@@ -244,7 +262,7 @@ export class CloudSync {
 	}
 
 	private async syncQuietly() {
-		if (!this.signedIn || !this.hasSomethingToSync()) return;
+		if (!this.active || !this.hasSomethingToSync()) return;
 		try {
 			const r = await this.sync();
 			if (r.conflicts) new Notice(`Bits and Bobs sync: ${r.conflicts} file${r.conflicts === 1 ? " was" : "s were"} changed on two devices. Both copies were kept.`);
@@ -292,15 +310,21 @@ export class CloudSync {
 		const res: SyncResult = { up: 0, down: 0, removed: 0, conflicts: 0, citations: false, errors: [] };
 		const st = await this.loadState();
 
-		if (this.s.paths.length) await this.syncFiles(st, res);
-		await this.plugin.source.sync();
-		try { await this.plugin.shares.syncAll(); } catch (e) { res.errors.push(`Shared links: ${(e as Error).message}`); }
-		if (this.s.citations) {
+		if (this.s.paths.length && this.filesReady) {
+			if (this.s.provider === "onedrive") await this.plugin.onedrive.syncFiles(res);
+			else await this.syncFiles(st, res);
+		}
+		if (this.signedIn) {
+			await this.plugin.source.sync();
+			try { await this.plugin.shares.syncAll(); } catch (e) { res.errors.push(`Shared links: ${(e as Error).message}`); }
+		}
+		if (this.s.citations && this.signedIn) {
 			try { res.citations = await this.syncCitations(st); }
 			catch (e) { if (e instanceof SignedOutError) throw e; res.errors.push(`Citations: ${(e as Error).message}`); }
 		}
 
-		await this.saveState(st);
+		// (Keyring's record of what was in step is only touched while signed in to Keyring)
+		if (this.signedIn) await this.saveState(st);
 		this.s.lastSync = Date.now();
 		await this.plugin.saveSettings();
 		return res;
@@ -364,7 +388,7 @@ export class CloudSync {
 		for (const p of Object.keys(st.cache)) if (!vault.getAbstractFileByPath(p)) delete st.cache[p];
 	}
 
-	private conflictName(path: string): string {
+	conflictName(path: string): string {
 		const dot = path.lastIndexOf(".");
 		const slash = path.lastIndexOf("/");
 		const stem = dot > slash ? path.slice(0, dot) : path;

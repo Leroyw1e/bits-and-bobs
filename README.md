@@ -90,6 +90,19 @@ Drawing boards, slides, Excel spreadsheets and maths tools for Obsidian, built t
 - Deleting a synced file on one device moves it to the trash on the others.
 - Each Keyring account can store up to 2 GB, and single files up to 60 MB. A sign-in lasts 30 days, then you sign in again.
 
+### Sync files with OneDrive (optional)
+- In **Settings → Bits and Bobs → Cloud sync**, set **Keep synced files in** to **OneDrive**. Your files then go straight between your devices and your own OneDrive, not through Keyring. You still choose the folders to sync, press **Sync now**, or turn on **Sync automatically**, exactly as above. Citations and share links keep using Keyring.
+- Files are kept in the OneDrive folder **Apps → (the name you gave your app)**, with the same folders as in your vault. Only that folder is touched; the plugin can't see the rest of your OneDrive.
+- It works with personal Microsoft accounts (outlook.com, hotmail.com, live.com). Work and school accounts aren't supported.
+- If a file changed in both places, both copies are kept (the OneDrive one is saved next to yours as `name (other device date)`). A file deleted on one side is moved to the trash or recycle bin on the other. Files over 100 MB, and files with names OneDrive can't store (such as ones with `:` or `?`), are skipped.
+- **One-time setup: make a free app ID.** Microsoft needs this to let a plugin sign in to OneDrive. It takes a few minutes and you only do it once:
+  1. Go to [entra.microsoft.com](https://entra.microsoft.com), sign in with your Microsoft account, and open **Entra ID → App registrations → New registration**. (If it asks you to set up a free directory, accept.)
+  2. Name it **Bits and Bobs** (that's the folder name you'll see in OneDrive). Under **Supported account types** choose **Personal Microsoft accounts only**. Leave the redirect address empty and press **Register**.
+  3. On the page that opens, copy the **Application (client) ID**.
+  4. Open **Authentication** (on the left), then **Settings**, and switch **Allow public client flows** to **Yes**. Press **Save**.
+- Back in Obsidian, paste the app ID into **OneDrive app ID** and press **Connect OneDrive**. A code appears: press **Open the page**, type the code at microsoft.com/devicelogin, and sign in. This works on iPad and iPhone too.
+- **Disconnect** stops syncing and forgets the sign-in on this device. It doesn't delete anything in OneDrive or in your vault.
+
 ### Canvas and embeds
 - Run **Add a drawing card to this canvas** and draw straight onto the card.
 - Embed a board, deck or spreadsheet in a note with `![[file.mboard]]` to show it in place.
@@ -126,7 +139,7 @@ Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon b
 - **Optional integration**: if the Home + AI plugin is installed, buttons for new boards, slides and spreadsheets are added to its home screen. You can turn this off in settings.
 - **Privacy**: no telemetry, and nothing is sent anywhere unless you use one of these:
   - **Fill in from link** in Citations reads that one web page.
-  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `obsidian.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your Keyring account so your other devices can get them. While you're signed in, the Citations tab also reads and saves your Source citation lists at `source.leroyw1e.workers.dev` (the Source website) when it's open or when you press Sync now. Signing in happens on Keyring (`account.leroyw1e.workers.dev`); the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. If you share something as a link, a copy of it (and any pictures it shows) is stored on the same server so the link works, and anyone with the link can see it; **Stop sharing** deletes it from the server. Shared pages load their Markdown, maths and PDF viewers from jsDelivr. **Delete everything in the cloud** removes your copy from the server (shared links too), and **Sign out** ends the sign-in.
+  - **Cloud sync** is off until you sign in. After you sign in, only the folders and files you choose, and your citation list (if **Sync citations** is on), are sent to the sync server at `obsidian.leroyw1e.workers.dev` (a Cloudflare Worker), where they're stored under your Keyring account so your other devices can get them. While you're signed in, the Citations tab also reads and saves your Source citation lists at `source.leroyw1e.workers.dev` (the Source website) when it's open or when you press Sync now. Signing in happens on Keyring (`account.leroyw1e.workers.dev`); the plugin never sees your password, only a sign-in token that's kept in the plugin's settings. If you turn on **OneDrive** sync, the folders and files you choose are sent straight to your own OneDrive by Microsoft's service (`login.microsoftonline.com` and `graph.microsoft.com`), and nothing else is sent anywhere; the plugin keeps a Microsoft sign-in token in its settings until you press **Disconnect**. If you share something as a link, a copy of it (and any pictures it shows) is stored on the same server so the link works, and anyone with the link can see it; **Stop sharing** deletes it from the server. Shared pages load their Markdown, maths and PDF viewers from jsDelivr. **Delete everything in the cloud** removes your copy from the server (shared links too), and **Sign out** ends the sign-in.
 
 ## More plugins
 

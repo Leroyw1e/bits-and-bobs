@@ -19,7 +19,8 @@ import { renderChart, svgToPng } from "./charts";
 import { TagAllModal, syncFolderTags } from "./foldertags";
 import { setupImageTools } from "./imagetools";
 import { CiteView, VIEW_CITE } from "./cite";
-import { CloudSync, DEFAULT_SYNC } from "./sync";
+import { CloudSync, DEFAULT_OD, DEFAULT_SYNC } from "./sync";
+import { OneDrive } from "./onedrive";
 import { DEFAULT_SOURCE, SourceLists, type SourceState } from "./sourcelists";
 import { ShareModal, Shares } from "./share";
 import { shareKind } from "./sharecapture";
@@ -31,6 +32,7 @@ const TOOLBAR_TOOLS = ["math-palette", "inline-math", "power", "fraction", "sqrt
 export default class BitsAndBobs extends Plugin {
 	settings!: BitsSettings;
 	cloud = new CloudSync(this);
+	onedrive = new OneDrive(this);
 	source = new SourceLists(this);
 	shares = new Shares(this);
 	private registeredExts: string[] = [];
@@ -44,6 +46,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
 		this.settings.sync.paths = [...this.settings.sync.paths];
+		this.settings.sync.od = Object.assign({}, DEFAULT_OD, this.settings.sync.od);
 		this.settings.shares = Array.isArray(this.settings.shares) ? this.settings.shares.map((l) => ({ ...l })) : [];
 		this.settings.source = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SOURCE)) as SourceState, this.settings.source);
 		const st = this.settings;
@@ -171,6 +174,7 @@ export default class BitsAndBobs extends Plugin {
 
 		this.addSettingTab(new BitsSettingTab(this.app, this));
 		this.cloud.start();
+		this.onedrive.start();
 		this.source.start();
 		this.shares.start();
 		this.addCommand({

@@ -1,7 +1,7 @@
 {
 	"id": "bits-and-bobs",
 	"name": "Bits and Bobs",
-	"version": "1.14.0",
+	"version": "1.15.0",
 	"minAppVersion": "1.7.2",
 	"description": "Draw with a stylus on freeform boards, make slides, edit Excel spreadsheets with formulas, and type maths with keyboard shortcuts and symbol search.",
 	"author": "jenx",

@@ -461,3 +461,6 @@ col.ms-rowhead-col { width: 44px; }
 /* sharing: boards and slides are drawn off screen to copy them for a share link */
 .bb-share-capture { position: fixed; left: -30000px; top: 0; width: 1600px; height: 1200px; pointer-events: none; }
 .bb-share-capture .ms-world.bb-capture-flat { transform: none !important; }
+
+/* OneDrive connect errors */
+.bb-od-error { color: var(--text-error); padding: 0 0 12px; }

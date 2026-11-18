@@ -52,15 +52,18 @@ const size = (n: number): string => (n < 1048576 ? `${Math.max(1, Math.round(n /
 export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: () => void) {
 	const app = plugin.app;
 	const cloud = plugin.cloud;
+	const od = plugin.onedrive;
 	const s = plugin.settings.sync;
 	const save = () => plugin.saveSettings();
+	od.onChange = redraw;
 
 	new Setting(containerEl).setName("Cloud sync").setHeading();
 
+	// ---- Keyring (citations, shared links, and files if chosen)
 	if (!cloud.signedIn) {
 		new Setting(containerEl)
 			.setName("Sign in with Keyring")
-			.setDesc("Sign in to copy the folders and files you choose, and your citations, to the cloud so they show up on your other devices. Nothing is sent until you sign in and choose what to sync.")
+			.setDesc("Needed for share links and syncing citations, and to keep files in the Keyring cloud. Nothing is sent until you sign in and choose what to sync.")
 			.addButton((b) => b.setButtonText("Sign in with Keyring").setCta().onClick(() => void cloud.beginSignIn()));
 		let code = "";
 		new Setting(containerEl)
@@ -70,53 +73,73 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 			.addButton((b) => b.setButtonText("Use code").onClick(async () => {
 				if (code.trim() && (await cloud.finishSignIn(code))) redraw();
 			}));
-		return;
+	} else {
+		const who = s.user ? (s.user.name ? `${s.user.name} (${s.user.email})` : s.user.email) : "you";
+		const acct = new Setting(containerEl).setName(`Signed in to Keyring as ${who}`).setDesc(s.provider === "keyring" ? "Checking how much you've stored…" : "")
+			.addButton((b) => b.setButtonText("Sign out").onClick(async () => { await cloud.signOut(); redraw(); }));
+		if (s.provider === "keyring") void cloud.usage().then((u) => { if (u) acct.setDesc(`${u.files} file${u.files === 1 ? "" : "s"} in the cloud, using ${size(u.bytes)} of ${size(u.limit)}.`); else acct.setDesc(""); });
 	}
 
-	const who = s.user ? (s.user.name ? `${s.user.name} (${s.user.email})` : s.user.email) : "you";
-	const acct = new Setting(containerEl).setName(`Signed in to Keyring as ${who}`).setDesc("Checking how much you've stored…")
-		.addButton((b) => b.setButtonText("Sign out").onClick(async () => { await cloud.signOut(); redraw(); }));
-	void cloud.usage().then((u) => { if (u) acct.setDesc(`${u.files} file${u.files === 1 ? "" : "s"} in the cloud, using ${size(u.bytes)} of ${size(u.limit)}.`); else acct.setDesc(""); });
+	// ---- where synced files go
+	new Setting(containerEl).setName("Keep synced files in")
+		.setDesc("Your files go to the Keyring cloud, or straight to your own OneDrive. Citations and share links always use Keyring.")
+		.addDropdown((d) => d.addOptions({ keyring: "Keyring cloud", onedrive: "OneDrive" }).setValue(s.provider).onChange(async (v) => {
+			s.provider = v === "onedrive" ? "onedrive" : "keyring";
+			await save();
+			cloud.applyAuto();
+			redraw();
+		}));
 
-	// what to sync
-	new Setting(containerEl)
-		.setName("Folders and files to sync")
-		.setDesc(s.paths.length ? "Everything inside a chosen folder is synced, including new files." : "Nothing is synced yet. Add a folder or file to start.")
-		.addButton((b) => b.setButtonText("Add").onClick(() => new PathPicker(app, s.paths, (p) => {
-			s.paths = p === "/" ? ["/"] : [...s.paths.filter((x) => !p.startsWith(x + "/") && !x.startsWith(p + "/")), p].sort();
-			void save().then(redraw);
-		}).open()));
-	for (const p of s.paths) {
-		const label = p === "/" ? "Whole vault" : app.vault.getAbstractFileByPath(p) instanceof TFolder ? `${p}/` : p;
-		new Setting(containerEl).setClass("bb-sync-path").setName(label)
-			.addExtraButton((b) => b.setIcon("x").setTooltip("Stop syncing this").onClick(async () => {
-				s.paths = s.paths.filter((x) => x !== p);
-				await save();
-				redraw();
-			}));
+	if (s.provider === "onedrive") renderOneDrive(containerEl, plugin, redraw);
+
+	if (cloud.filesReady) {
+		// what to sync
+		new Setting(containerEl)
+			.setName("Folders and files to sync")
+			.setDesc(s.paths.length ? "Everything inside a chosen folder is synced, including new files." : "Nothing is synced yet. Add a folder or file to start.")
+			.addButton((b) => b.setButtonText("Add").onClick(() => new PathPicker(app, s.paths, (p) => {
+				s.paths = p === "/" ? ["/"] : [...s.paths.filter((x) => !p.startsWith(x + "/") && !x.startsWith(p + "/")), p].sort();
+				void save().then(redraw);
+			}).open()));
+		for (const p of s.paths) {
+			const label = p === "/" ? "Whole vault" : app.vault.getAbstractFileByPath(p) instanceof TFolder ? `${p}/` : p;
+			new Setting(containerEl).setClass("bb-sync-path").setName(label)
+				.addExtraButton((b) => b.setIcon("x").setTooltip("Stop syncing this").onClick(async () => {
+					s.paths = s.paths.filter((x) => x !== p);
+					await save();
+					redraw();
+				}));
+		}
 	}
 
-	new Setting(containerEl).setName("Sync citations").setDesc("Keep your citation list the same on all your devices.")
-		.addToggle((t) => t.setValue(s.citations).onChange(async (v) => { s.citations = v; await save(); }));
+	if (cloud.signedIn) {
+		new Setting(containerEl).setName("Sync citations").setDesc("Keep your citation list the same on all your devices.")
+			.addToggle((t) => t.setValue(s.citations).onChange(async (v) => { s.citations = v; await save(); }));
+	}
 
-	new Setting(containerEl).setName("Sync automatically").setDesc("Sync when Obsidian opens, every 5 minutes, and shortly after you change a synced file.")
-		.addToggle((t) => t.setValue(s.auto).onChange(async (v) => { s.auto = v; await save(); cloud.applyAuto(); }));
+	if (cloud.active) {
+		new Setting(containerEl).setName("Sync automatically").setDesc("Sync when Obsidian opens, every 5 minutes, and shortly after you change a synced file.")
+			.addToggle((t) => t.setValue(s.auto).onChange(async (v) => { s.auto = v; await save(); cloud.applyAuto(); }));
 
-	const status = new Setting(containerEl).setName("Sync now")
-		.setDesc(cloud.busy ? "Syncing…" : `Last synced ${ago(s.lastSync)}.`)
-		.addButton((b) => {
-			b.setButtonText(cloud.busy ? "Syncing…" : "Sync now").setCta().setDisabled(cloud.busy || !cloud.hasSomethingToSync()).onClick(async () => {
-				b.setDisabled(true).setButtonText("Syncing…");
-				status.setDesc("Syncing…");
-				try {
-					const r = await cloud.sync();
-					new Notice(describeResult(r));
-				} catch (e) {
-					new Notice(e instanceof SignedOutError ? e.message : `Sync failed: ${(e as Error).message}`);
-				}
-				redraw();
+		const status = new Setting(containerEl).setName("Sync now")
+			.setDesc(cloud.busy ? "Syncing…" : `Last synced ${ago(s.lastSync)}.`)
+			.addButton((b) => {
+				b.setButtonText(cloud.busy ? "Syncing…" : "Sync now").setCta().setDisabled(cloud.busy || !cloud.hasSomethingToSync()).onClick(async () => {
+					b.setDisabled(true).setButtonText("Syncing…");
+					status.setDesc("Syncing…");
+					try {
+						const r = await cloud.sync();
+						new Notice(describeResult(r));
+					} catch (e) {
+						new Notice(e instanceof SignedOutError ? e.message : `Sync failed: ${(e as Error).message}`);
+					}
+					redraw();
+				});
 			});
-		});
+	}
+
+	if (!cloud.signedIn) return;
+
 	// shared links
 	new Setting(containerEl).setName("Shared links").setHeading();
 	const shareBox = containerEl.createDiv();
@@ -133,10 +156,37 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 	void plugin.shares.refresh().then(drawShares, () => { /* offline */ });
 
 	new Setting(containerEl).setName("Delete everything in the cloud")
-		.setDesc("Removes your synced files, citations and shared links from the cloud. Files on this device are kept.")
+		.setDesc("Removes your synced files, citations and shared links from the Keyring cloud. Files on this device, and anything in OneDrive, are kept.")
 		.addButton((b) => b.setButtonText("Delete").setClass("mod-warning").onClick(() => new ConfirmModal(app, "Delete your cloud copy?",
-			"Your synced files, citations and shared links will be removed from the cloud, and the links will stop working. Nothing on this device is deleted, but other devices won't get updates until you sync again.",
+			"Your files, citations and shared links in the Keyring cloud will be removed, and the links will stop working. Nothing on this device is deleted, but other devices won't get updates until you sync again.",
 			"Delete", () => {
 				void cloud.deleteEverything().then(() => { new Notice("Cloud copy deleted."); redraw(); }, (e) => new Notice(`Couldn't delete: ${(e as Error).message}`));
 			}).open()));
+}
+
+/** Connect to or disconnect from OneDrive. */
+function renderOneDrive(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: () => void) {
+	const od = plugin.onedrive;
+	const cfg = plugin.settings.sync.od;
+	if (od.connected) {
+		new Setting(containerEl).setName(`Connected to OneDrive${cfg.name ? ` as ${cfg.name}` : ""}`)
+			.setDesc("Your files are kept in the OneDrive folder Apps, then the name you gave your app. Disconnecting doesn't delete anything.")
+			.addButton((b) => b.setButtonText("Disconnect").onClick(() => { void od.disconnect().then(redraw); }));
+		return;
+	}
+	if (od.pending) {
+		const p = od.pending;
+		const box = new Setting(containerEl).setName(`Your code: ${p.userCode}`)
+			.setDesc(`Open ${p.uri.replace(/^https:\/\//, "")}, type this code, and sign in with your Microsoft account. This page updates by itself when you're done.`);
+		box.addButton((b) => b.setButtonText("Open the page").setCta().onClick(() => { window.open(p.uri); }));
+		box.addButton((b) => b.setButtonText("Copy code").onClick(() => { void navigator.clipboard.writeText(p.userCode).then(() => new Notice("Code copied.")); }));
+		box.addButton((b) => b.setButtonText("Cancel").onClick(() => od.cancelConnect()));
+		return;
+	}
+	let id = cfg.clientId;
+	const idRow = new Setting(containerEl).setName("OneDrive app ID")
+		.setDesc("Microsoft needs an app ID (a client ID) once, which you make for free at entra.microsoft.com. The README has the steps. It looks like 12345678-90ab-cdef-1234-567890abcdef.")
+		.addText((t) => t.setPlaceholder("Application (client) ID").setValue(id).onChange((v) => { id = v; }));
+	idRow.addButton((b) => b.setButtonText("Connect OneDrive").setCta().onClick(() => { void od.beginConnect(id); }));
+	if (od.error) containerEl.createDiv({ cls: "setting-item-description bb-od-error", text: od.error });
 }
