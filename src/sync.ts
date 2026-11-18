@@ -19,8 +19,8 @@ export const PROTOCOL_ACTION = "bits-and-bobs-sync";
 export interface SyncUser { id: string; email: string; name: string }
 
 /** OneDrive connection (see onedrive.ts) */
-export interface OneDriveSettings { clientId: string; refresh: string; access: string; expires: number; name: string }
-export const DEFAULT_OD: OneDriveSettings = { clientId: "", refresh: "", access: "", expires: 0, name: "" };
+export interface OneDriveSettings { clientId: string; refresh: string; access: string; expires: number; name: string; /** this vault's folder inside the app folder in OneDrive; empty means the vault's name */ folder: string }
+export const DEFAULT_OD: OneDriveSettings = { clientId: "", refresh: "", access: "", expires: 0, name: "", folder: "" };
 
 export interface SyncSettings {
 	/** where synced files are kept: the Keyring cloud, or your own OneDrive */
@@ -29,14 +29,20 @@ export interface SyncSettings {
 	token: string;
 	user: SyncUser | null;
 	expires: number;
-	/** vault paths of folders or files to sync; "/" means the whole vault */
+	/** "all": everything in the vault except `exclude`; "chosen": only `paths` */
+	scope: "all" | "chosen";
+	/** vault paths of folders or files to sync when scope is "chosen"; "/" means the whole vault */
 	paths: string[];
+	/** folders or files to leave out when scope is "all" */
+	exclude: string[];
+	/** OneDrive only: also sync the vault's settings folder (settings, themes, plugins) */
+	config: boolean;
 	citations: boolean;
 	auto: boolean;
 	lastSync: number;
 }
 
-export const DEFAULT_SYNC: SyncSettings = { provider: "keyring", od: DEFAULT_OD, token: "", user: null, expires: 0, paths: [], citations: true, auto: false, lastSync: 0 };
+export const DEFAULT_SYNC: SyncSettings = { provider: "keyring", od: DEFAULT_OD, token: "", user: null, expires: 0, scope: "chosen", paths: [], exclude: [], config: true, citations: true, auto: false, lastSync: 0 };
 
 /** What the files looked like after the last sync, so changes on each side can be told apart. */
 interface SyncState {
@@ -51,7 +57,7 @@ interface SyncState {
 
 interface RemoteFile { hash: string; size: number; mtime: number; deleted: boolean }
 
-export interface SyncResult { up: number; down: number; removed: number; conflicts: number; citations: boolean; errors: string[] }
+export interface SyncResult { up: number; down: number; removed: number; conflicts: number; citations: boolean; errors: string[]; /** the first sync of this vault with this place */ first?: boolean }
 
 const MAX_FILE = 60 * 1024 * 1024;
 const AUTO_MINUTES = 5;
@@ -213,19 +219,27 @@ export class CloudSync {
 
 	// ---------- what to sync ----------
 
-	hasSomethingToSync(): boolean { return (this.s.paths.length > 0 && this.filesReady) || (this.s.citations && this.signedIn); }
+	/** files are chosen (or everything is synced), so there's something to do for files */
+	get hasFileScope(): boolean { return this.s.scope === "all" || this.s.paths.length > 0; }
 
+	hasSomethingToSync(): boolean { return (this.hasFileScope && this.filesReady) || (this.s.citations && this.signedIn); }
+
+	private excluded(path: string): boolean { return this.s.exclude.some((x) => path === x || path.startsWith(x + "/")); }
+
+	/** Is this vault file one to sync? (The settings folder and hidden files are handled separately.) */
 	inScope(path: string): boolean {
 		const cfg = this.plugin.app.vault.configDir;
 		if (path === cfg || path.startsWith(cfg + "/")) return false;
 		if (path.split("/").some((p) => p.startsWith("."))) return false;
+		if (this.s.scope === "all") return !this.excluded(path);
 		return this.s.paths.some((p) => p === "/" || path === p || path.startsWith(p + "/"));
 	}
 
-	/** Could this folder hold (or lead to) a chosen file or folder? */
+	/** Could this folder hold (or lead to) a file to sync? */
 	relevantFolder(path: string): boolean {
 		const cfg = this.plugin.app.vault.configDir;
 		if (path === cfg || path.startsWith(cfg + "/") || path.split("/").some((p) => p.startsWith("."))) return false;
+		if (this.s.scope === "all") return !this.excluded(path);
 		return this.s.paths.some((p) => p === "/" || p === path || p.startsWith(path + "/") || path.startsWith(p + "/"));
 	}
 
@@ -265,7 +279,8 @@ export class CloudSync {
 		if (!this.active || !this.hasSomethingToSync()) return;
 		try {
 			const r = await this.sync();
-			if (r.conflicts) new Notice(`Bits and Bobs sync: ${r.conflicts} file${r.conflicts === 1 ? " was" : "s were"} changed on two devices. Both copies were kept.`);
+			if (r.first) new Notice(`Bits and Bobs: ${describeResult(r)}`, 10_000);
+			else if (r.conflicts) new Notice(`Bits and Bobs sync: ${r.conflicts} file${r.conflicts === 1 ? " was" : "s were"} changed on two devices. Both copies were kept.`);
 			if (r.errors.length) console.warn("Bits and Bobs sync:", r.errors);
 		} catch (e) {
 			if (e instanceof SignedOutError) new Notice(e.message);
@@ -275,9 +290,10 @@ export class CloudSync {
 
 	// ---------- the sync itself ----------
 
-	sync(): Promise<SyncResult> {
+	/** `manual` is true when someone pressed Sync now (so big deletions can be asked about). */
+	sync(manual = false): Promise<SyncResult> {
 		if (this.running) return this.running;
-		this.running = this.doSync().finally(() => { this.running = null; this.onChange?.(); });
+		this.running = this.doSync(manual).finally(() => { this.running = null; this.onChange?.(); });
 		this.onChange?.();
 		return this.running;
 	}
@@ -306,12 +322,12 @@ export class CloudSync {
 		return h;
 	}
 
-	private async doSync(): Promise<SyncResult> {
+	private async doSync(manual: boolean): Promise<SyncResult> {
 		const res: SyncResult = { up: 0, down: 0, removed: 0, conflicts: 0, citations: false, errors: [] };
 		const st = await this.loadState();
 
-		if (this.s.paths.length && this.filesReady) {
-			if (this.s.provider === "onedrive") await this.plugin.onedrive.syncFiles(res);
+		if (this.hasFileScope && this.filesReady) {
+			if (this.s.provider === "onedrive") await this.plugin.onedrive.syncFiles(res, manual);
 			else await this.syncFiles(st, res);
 		}
 		if (this.signedIn) {
@@ -367,7 +383,7 @@ export class CloudSync {
 				} else {
 					// changed on both sides
 					if (f && r && l) {
-						await this.download(this.conflictName(path), null, r, path);
+						await this.download(await this.conflictPath(path), null, r, path);
 						await this.upload(f);
 						st.files[path] = l;
 						res.conflicts++;
@@ -388,15 +404,16 @@ export class CloudSync {
 		for (const p of Object.keys(st.cache)) if (!vault.getAbstractFileByPath(p)) delete st.cache[p];
 	}
 
-	conflictName(path: string): string {
+	/** A new name for a copy that's kept because a file changed in two places: "name (conflict 2026-11-18 2018).md". */
+	async conflictPath(path: string): Promise<string> {
 		const dot = path.lastIndexOf(".");
 		const slash = path.lastIndexOf("/");
 		const stem = dot > slash ? path.slice(0, dot) : path;
 		const ext = dot > slash ? path.slice(dot) : "";
 		const d = new Date();
 		const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
-		let name = `${stem} (other device ${stamp})${ext}`;
-		for (let i = 2; this.plugin.app.vault.getAbstractFileByPath(name); i++) name = `${stem} (other device ${stamp} ${i})${ext}`;
+		let name = `${stem} (conflict ${stamp})${ext}`;
+		for (let i = 2; await this.plugin.app.vault.adapter.exists(name); i++) name = `${stem} (conflict ${stamp} ${i})${ext}`;
 		return name;
 	}
 
@@ -471,10 +488,10 @@ export class CloudSync {
 
 export const describeResult = (r: SyncResult): string => {
 	const bits: string[] = [];
-	if (r.up) bits.push(`${r.up} sent`);
-	if (r.down) bits.push(`${r.down} received`);
-	if (r.removed) bits.push(`${r.removed} removed`);
-	if (r.conflicts) bits.push(`${r.conflicts} changed on two devices (both kept)`);
+	if (r.up) bits.push(`uploaded ${r.up}`);
+	if (r.down) bits.push(`downloaded ${r.down}`);
+	if (r.removed) bits.push(`removed ${r.removed}`);
+	if (r.conflicts) bits.push(`${r.conflicts} conflict${r.conflicts === 1 ? "" : "s"} kept (both versions saved)`);
 	if (r.citations) bits.push("citations updated");
 	let s = bits.length ? `Synced: ${bits.join(", ")}.` : "Everything is up to date.";
 	if (r.errors.length) s += ` ${r.errors.length} couldn't sync: ${r.errors.slice(0, 2).join("; ")}`;

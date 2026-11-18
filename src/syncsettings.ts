@@ -5,13 +5,13 @@ import { linkRow } from "./share";
 
 /** Pick a folder or file in the vault to sync. */
 class PathPicker extends FuzzySuggestModal<string> {
-	constructor(app: App, private taken: string[], private onPick: (p: string) => void) {
+	constructor(app: App, private taken: string[], private onPick: (p: string) => void, private foldersOnly = false) {
 		super(app);
-		this.setPlaceholder("Type to find a folder or file to sync");
+		this.setPlaceholder(foldersOnly ? "Type to find a folder or file to leave out" : "Type to find a folder or file to sync");
 	}
 	getItems(): string[] {
 		const out: string[] = [];
-		if (!this.taken.includes("/")) out.push("/");
+		if (!this.foldersOnly && !this.taken.includes("/")) out.push("/");
 		for (const f of this.app.vault.getAllLoadedFiles()) {
 			if (f.path === "/" || this.taken.includes(f.path)) continue;
 			if (f instanceof TFolder || f instanceof TFile) out.push(f.path);
@@ -85,6 +85,7 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 		.setDesc("Your files go to the Keyring cloud, or straight to your own OneDrive. Citations and share links always use Keyring.")
 		.addDropdown((d) => d.addOptions({ keyring: "Keyring cloud", onedrive: "OneDrive" }).setValue(s.provider).onChange(async (v) => {
 			s.provider = v === "onedrive" ? "onedrive" : "keyring";
+			if (s.provider === "onedrive") s.scope = "all"; // OneDrive syncs the whole vault unless you say otherwise
 			await save();
 			cloud.applyAuto();
 			redraw();
@@ -93,22 +94,50 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 	if (s.provider === "onedrive") renderOneDrive(containerEl, plugin, redraw);
 
 	if (cloud.filesReady) {
-		// what to sync
-		new Setting(containerEl)
-			.setName("Folders and files to sync")
-			.setDesc(s.paths.length ? "Everything inside a chosen folder is synced, including new files." : "Nothing is synced yet. Add a folder or file to start.")
-			.addButton((b) => b.setButtonText("Add").onClick(() => new PathPicker(app, s.paths, (p) => {
-				s.paths = p === "/" ? ["/"] : [...s.paths.filter((x) => !p.startsWith(x + "/") && !x.startsWith(p + "/")), p].sort();
-				void save().then(redraw);
-			}).open()));
-		for (const p of s.paths) {
-			const label = p === "/" ? "Whole vault" : app.vault.getAbstractFileByPath(p) instanceof TFolder ? `${p}/` : p;
-			new Setting(containerEl).setClass("bb-sync-path").setName(label)
-				.addExtraButton((b) => b.setIcon("x").setTooltip("Stop syncing this").onClick(async () => {
-					s.paths = s.paths.filter((x) => x !== p);
-					await save();
-					redraw();
-				}));
+		new Setting(containerEl).setName("What to sync")
+			.setDesc(s.scope === "all" ? "Every note, attachment, board, slide deck, spreadsheet, PDF and picture in this vault, in every folder, including new ones." : "Only the folders and files you choose.")
+			.addDropdown((d) => d.addOptions({ all: "Everything in this vault", chosen: "Only folders and files I choose" }).setValue(s.scope).onChange(async (v) => {
+				s.scope = v === "chosen" ? "chosen" : "all";
+				await save();
+				redraw();
+			}));
+		if (s.scope === "all") {
+			new Setting(containerEl).setName("Leave out these folders or files").setDesc(s.exclude.length ? "" : "Nothing is left out.")
+				.addButton((b) => b.setButtonText("Add").onClick(() => new PathPicker(app, s.exclude, (p) => {
+					s.exclude = [...s.exclude.filter((x) => !x.startsWith(p + "/")), p].sort();
+					void save().then(redraw);
+				}, true).open()));
+			for (const p of s.exclude) {
+				const label = app.vault.getAbstractFileByPath(p) instanceof TFolder ? `${p}/` : p;
+				new Setting(containerEl).setClass("bb-sync-path").setName(label)
+					.addExtraButton((b) => b.setIcon("x").setTooltip("Sync this again").onClick(async () => {
+						s.exclude = s.exclude.filter((x) => x !== p);
+						await save();
+						redraw();
+					}));
+			}
+		} else {
+			new Setting(containerEl)
+				.setName("Folders and files to sync")
+				.setDesc(s.paths.length ? "Everything inside a chosen folder is synced, including new files." : "Nothing is synced yet. Add a folder or file to start.")
+				.addButton((b) => b.setButtonText("Add").onClick(() => new PathPicker(app, s.paths, (p) => {
+					s.paths = p === "/" ? ["/"] : [...s.paths.filter((x) => !p.startsWith(x + "/") && !x.startsWith(p + "/")), p].sort();
+					void save().then(redraw);
+				}).open()));
+			for (const p of s.paths) {
+				const label = p === "/" ? "Whole vault" : app.vault.getAbstractFileByPath(p) instanceof TFolder ? `${p}/` : p;
+				new Setting(containerEl).setClass("bb-sync-path").setName(label)
+					.addExtraButton((b) => b.setIcon("x").setTooltip("Stop syncing this").onClick(async () => {
+						s.paths = s.paths.filter((x) => x !== p);
+						await save();
+						redraw();
+					}));
+			}
+		}
+		if (s.provider === "onedrive") {
+			new Setting(containerEl).setName("Also sync settings, themes and plugins")
+				.setDesc(`The ${app.vault.configDir} folder: your Obsidian settings, themes, snippets, hotkeys and installed plugins with their settings, so a new device looks the same. Window layout and this plugin's own OneDrive sign-in always stay on each device.`)
+				.addToggle((t) => t.setValue(s.config).onChange(async (v) => { s.config = v; await save(); }));
 		}
 	}
 
@@ -128,7 +157,7 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 					b.setDisabled(true).setButtonText("Syncing…");
 					status.setDesc("Syncing…");
 					try {
-						const r = await cloud.sync();
+						const r = await cloud.sync(true);
 						new Notice(describeResult(r));
 					} catch (e) {
 						new Notice(e instanceof SignedOutError ? e.message : `Sync failed: ${(e as Error).message}`);
@@ -170,8 +199,11 @@ function renderOneDrive(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: (
 	const cfg = plugin.settings.sync.od;
 	if (od.connected) {
 		new Setting(containerEl).setName(`Connected to OneDrive${cfg.name ? ` as ${cfg.name}` : ""}`)
-			.setDesc("Your files are kept in the OneDrive folder Apps, then the name you gave your app. Disconnecting doesn't delete anything.")
+			.setDesc("Disconnecting doesn't delete anything.")
 			.addButton((b) => b.setButtonText("Disconnect").onClick(() => { void od.disconnect().then(redraw); }));
+		new Setting(containerEl).setName("OneDrive folder for this vault")
+			.setDesc(`Apps → your app's name → ${od.folder}. To link this vault to one that's already in OneDrive (on a new iPad, say), press Change and pick it.`)
+			.addButton((b) => b.setButtonText("Change").onClick(() => new OneDriveFolderModal(plugin.app, plugin, redraw).open()));
 		return;
 	}
 	if (od.pending) {
@@ -189,4 +221,34 @@ function renderOneDrive(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: (
 		.addText((t) => t.setPlaceholder("Application (client) ID").setValue(id).onChange((v) => { id = v; }));
 	idRow.addButton((b) => b.setButtonText("Connect OneDrive").setCta().onClick(() => { void od.beginConnect(id); }));
 	if (od.error) containerEl.createDiv({ cls: "setting-item-description bb-od-error", text: od.error });
+}
+
+/** Pick which OneDrive folder this vault syncs with: one that's already there, or a new name. */
+class OneDriveFolderModal extends Modal {
+	constructor(app: App, private plugin: BitsAndBobs, private done: () => void) { super(app); }
+	onOpen() {
+		const od = this.plugin.onedrive;
+		this.setTitle("OneDrive folder for this vault");
+		this.contentEl.createEl("p", { text: "Pick a vault that's already in OneDrive to sync with it, or type a new name. Files are merged, and nothing is deleted the first time." });
+		let name = od.folder;
+		const input = new Setting(this.contentEl).setName("Folder name").addText((t) => t.setValue(name).onChange((v) => { name = v; }));
+		const list = this.contentEl.createDiv();
+		list.createDiv({ cls: "setting-item-description", text: "Looking in OneDrive…" });
+		void od.listFolders().then((folders) => {
+			list.empty();
+			if (!folders.length) { list.createDiv({ cls: "setting-item-description", text: "No vaults in OneDrive yet. Type a name above." }); return; }
+			list.createDiv({ cls: "setting-item-description", text: "Already in OneDrive:" });
+			for (const f of folders) {
+				new Setting(list).setName(f).addButton((b) => b.setButtonText("Use this").onClick(async () => { await od.setFolder(f); this.close(); this.done(); }));
+			}
+		}, () => { list.empty(); list.createDiv({ cls: "setting-item-description", text: "Couldn't look in OneDrive. You can still type a name." }); });
+		new Setting(this.contentEl).addButton((b) => b.setButtonText("Use the name above").setCta().onClick(async () => {
+			if (!name.trim()) return;
+			await od.setFolder(name);
+			this.close();
+			this.done();
+		}));
+		void input;
+	}
+	onClose() { this.contentEl.empty(); }
 }

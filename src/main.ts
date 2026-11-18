@@ -46,6 +46,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
 		this.settings.sync.paths = [...this.settings.sync.paths];
+		this.settings.sync.exclude = [...(this.settings.sync.exclude ?? [])];
 		this.settings.sync.od = Object.assign({}, DEFAULT_OD, this.settings.sync.od);
 		this.settings.shares = Array.isArray(this.settings.shares) ? this.settings.shares.map((l) => ({ ...l })) : [];
 		this.settings.source = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SOURCE)) as SourceState, this.settings.source);
