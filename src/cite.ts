@@ -49,7 +49,7 @@ export class CiteView extends ItemView {
 		const el = this.pickEl, src = this.plugin.source;
 		if (!el) return;
 		el.empty();
-		if (!src.signedIn) return;
+		if (!src.signedIn || !this.plugin.settings.cloud) return;
 		const st = this.plugin.settings.source;
 		const sel = el.createEl("select", { cls: "dropdown bb-cite-pick", attr: { "aria-label": "Citation list" } });
 		sel.createEl("option", { value: "", text: "In Obsidian" });

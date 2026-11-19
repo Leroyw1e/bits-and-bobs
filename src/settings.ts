@@ -5,6 +5,7 @@ import type { Bg } from "./board";
 import type { PdfNoteStyle } from "./pdfnote";
 import { TagAllModal } from "./foldertags";
 import { SPELL_LANGS } from "./spell";
+import { STYLE_NAMES } from "./citeformat";
 import type { Citation, CiteStyle } from "./citeformat";
 import { DEFAULT_SYNC, type SyncSettings } from "./sync";
 import { DEFAULT_SOURCE, type SourceState } from "./sourcelists";
@@ -71,6 +72,10 @@ export interface BitsSettings {
 	citations: Citation[];
 	imageTools: boolean;
 	editorTab: boolean;
+	/** master switch for typing helpers (shortcuts, auto solve, ^, pi, fractions, symbol search, maths buttons) */
+	mathTyping: boolean;
+	/** master switch for Keyring and OneDrive sync, share links and Source lists */
+	cloud: boolean;
 	spellOn: boolean;
 	spellLang: string;
 	spellSkipNames: boolean;
@@ -90,7 +95,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, editorTab: true, spellOn: true, spellLang: "en-AU", spellSkipNames: true, myWords: [], wordGoal: 0, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
+	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, editorTab: true, mathTyping: true, cloud: true, spellOn: true, spellLang: "en-AU", spellSkipNames: true, myWords: [], wordGoal: 0, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];
@@ -101,6 +106,7 @@ export class BitsSettingTab extends PluginSettingTab {
 	display() {
 		const { containerEl } = this;
 		const s = this.plugin.settings;
+		const st = s;
 		containerEl.empty();
 
 		const toggle = (key: BoolKey, name: string, desc: string, after?: (v: boolean) => void) =>
@@ -111,88 +117,128 @@ export class BitsSettingTab extends PluginSettingTab {
 			}));
 		const feature = (key: BoolKey, name: string, desc: string) => toggle(key, name, desc, () => { void this.plugin.reload(); });
 
-		// General (no heading, per Obsidian's guidelines)
+		const note = (text: string) => containerEl.createDiv({ cls: "setting-item-description ms-note", text });
+		/** a feature's own heading; its options are only shown while the feature is on */
+		const section = (title: string, on: boolean, body: () => void, blurb?: string) => {
+			new Setting(containerEl).setName(title).setHeading();
+			if (!on) { note("Turned off. Switch it on in Features at the top."); return; }
+			if (blurb) note(blurb);
+			body();
+		};
+		/** a switch that also shows or hides the feature's options below */
+		const switchOn = (key: BoolKey, name: string, desc: string, after?: (v: boolean) => void) =>
+			toggle(key, name, desc, (v) => { after?.(v); this.display(); });
+
+		// ---------- 1. every major feature, on or off ----------
+		new Setting(containerEl).setName("Features").setHeading();
+		note("Turn each part of Bits and Bobs on or off. A feature you turn off disappears completely, and its options below are hidden.");
 		feature("boards", "Drawing boards", "Freeform boards for drawing, maths, images and graphs (.mboard files).");
 		feature("slides", "Slides", "Presentations with layouts and full-screen presenting (.mslides files).");
 		feature("sheets", "Spreadsheets", "Open and edit Excel .xlsx files with formulas. Turn off if another plugin should open .xlsx files.");
-		feature("embeds", "Show inside notes and Canvas", "Embedding a board, deck or spreadsheet shows it in place instead of a link.");
-		feature("ribbon", "Ribbon buttons", "Buttons in the left sidebar for new boards, slides and spreadsheets.");
+		feature("mathTyping", "Maths typing and symbols", "Keyboard shortcuts, symbol search, auto solve, type ^ for powers, pi, fractions, real × and ÷ signs, and the maths buttons.");
+		feature("citeTool", "Citations", "A citation maker in its own tab: websites, books, articles and videos in APA, MLA, Harvard or Chicago.");
+		feature("editorTab", "Editor tab", "Live word counts, reading time, how easy the note is to read, and spelling mistakes with their corrections, in the right sidebar.");
+		switchOn("imageTools", "Picture tools", "Crop, move and wrap pictures in notes, and turn dropped or pasted iPhone HEIC photos into JPEGs.");
+		switchOn("folderTags", "Folder tags", "New notes, and notes you move, get tags for the folders they're in.");
+		switchOn("pdfNotes", "PDF to note", "Drop a PDF on the file list to make a note from it.");
+		switchOn("photoNotes", "Photos to note", "Drop photos on the file list to make one note showing them all.");
+		feature("cloud", "Cloud sync, OneDrive and share links", "Sign in with Keyring to sync your vault, sync with OneDrive, share files as web links and keep your Source citation lists. Nothing is sent unless you sign in.");
+		feature("embeds", "Show boards, slides and spreadsheets inside notes and Canvas", "Embedding one shows it in place instead of a link.");
+		feature("ribbon", "Ribbon buttons", "Buttons in the left sidebar for new boards, slides and spreadsheets, the symbols menu, citations and the Editor tab.");
+		switchOn("homeButtons", "Home + AI buttons", "If the Home + AI plugin is installed, add new board, slides and spreadsheet buttons to its home screen.", () => this.plugin.setupHomeButtons());
+
+		// ---------- 2. the options of each feature ----------
+		new Setting(containerEl).setName("Inside each feature").setHeading();
+		note("Each feature has its own heading below, with everything you can change for it.");
+
+		section("Drawing boards", st.boards, () => {
+			toggle("fingerDraws", "Draw with your finger", "When off, fingers only move and zoom the board.");
+			toggle("pencilOnlyAfterPen", "Palm rejection", "Once a stylus such as Apple Pencil touches the board, fingers and palms pan instead of drawing.");
+			toggle("pressure", "Pressure sensitivity", "Press harder for thicker lines with a stylus.");
+			new Setting(containerEl).setName("Default pen size")
+				.addDropdown((d) => d.addOptions({ "2": "Fine", "4": "Medium", "8": "Bold", "14": "Marker" }).setValue(String(s.penSize)).onChange(async (v) => { s.penSize = parseInt(v); await this.plugin.saveSettings(); }));
+			new Setting(containerEl).setName("Background for new boards")
+				.addDropdown((d) => d.addOptions({ grid: "Grid", dots: "Dots", lines: "Lined", plain: "Plain" }).setValue(s.defaultBg).onChange(async (v) => { s.defaultBg = v as Bg; await this.plugin.saveSettings(); }));
+			toggle("shapeSnap", "Snap shapes when you hold the pen", "Draw a line, circle, rectangle or triangle, then hold the pen still at the end and it turns into a clean shape. Lines can then be aimed before you lift.");
+			new Setting(containerEl).setName("Hold time before snapping").setDesc("How long to hold the pen still.")
+				.addDropdown((d) => d.addOptions({ "400": "Short (0.4 s)", "600": "Normal (0.6 s)", "900": "Long (0.9 s)" }).setValue(String(s.snapHoldMs)).onChange(async (v) => { s.snapHoldMs = parseInt(v); await this.plugin.saveSettings(); }));
+			toggle("canvasDraw", "Draw straight onto Canvas cards", "When off, select the card first; drag cards by their title either way.", () => this.plugin.applyBodyClasses());
+			toggle("tbHighlighter", "Highlighter tool", "Show the highlighter in the board toolbar.");
+			toggle("tbShapes", "Shape tools", "Show rectangle, circle, line and arrow.");
+			toggle("tbMaths", "Maths tools", "Show the maths box and symbol buttons.");
+			toggle("tbGraph", "Graph tool", "Show the graph button.");
+			toggle("tbTrace", "Graph trace tool", "Show the button for reading values off a graph.");
+			toggle("tbChart", "Chart tool", "Show the button for making bar, line and pie charts from numbers you type.");
+			toggle("tbGuides", "Ruler and protractor", "Show the ruler and protractor buttons. Draw close to the ruler's edge and the line stays straight.");
+			toggle("tbLayers", "Layers", "Show the layers button for stacking, hiding and locking parts of a board.");
+			toggle("tbLasso", "Lasso tool", "Show the lasso button for circling things to select them.");
+			toggle("tbImages", "Image tool", "Show the add image button.");
+			containerEl.createDiv({ cls: "setting-item-description ms-note", text: "Toolbar changes apply to boards you open next." });
+		});
+
+		section("Slides", st.slides, () => {
+			toggle("speakerNotes", "Speaker notes", "Show the notes box under each slide.");
+			toggle("slideEffects", "Slide effects", "Themes, transitions between slides, and showing bullets or objects one click at a time.");
+			toggle("presentDraw", "Draw while presenting", "Pen, highlighter and laser pointer on top of the slide. Drawings are cleared when you finish.");
+			toggle("presentFullscreen", "Present in full screen", "On desktop, presenting fills the whole screen.");
+		});
+
+		section("Spreadsheets", st.sheets, () => {
+			toggle("sheetAutocorrect", "Autocorrect and predictions", "Let the keyboard fix spelling and suggest words in cells. Usually best off for numbers and formulas.");
+			toggle("sheetFormat", "Formatting buttons", "Bold, italic, colours, alignment and number formats. Colours and bold are kept by this plugin; number formats are also saved in the Excel file.");
+			toggle("sheetFill", "Drag to fill", "A small square on the selection that you drag to continue numbers, dates like Mon and Tue, and formulas.");
+			toggle("sheetCharts", "Charts", "Make bar, line, pie and scatter charts from cells, shown next to the spreadsheet.");
+			toggle("sheetSuggest", "Suggest functions", "Typing =SU shows SUM and SUMSQ. Press Tab or Enter to pick one.");
+		});
+
+		section("Maths typing and symbols", st.mathTyping, () => {
+			toggle("mathShortcuts", "Keyboard shortcuts", "Use the shortcuts listed at the bottom in notes, boards and spreadsheets.", (v) => this.plugin.applyShortcuts(v));
+			feature("symbolSearch", "Symbol search while typing", "Type \\ then a name, such as \\alpha or \\frac, to pick a symbol.");
+			toggle("superscriptTyping", "Type ^ for small raised numbers", "In a note, x^2 becomes x² as you type, and 10^-3 becomes 10⁻³. It isn't used inside maths, code or spreadsheets.");
+			toggle("autoSolve", "Auto solve", "In a note, type a sum and then =, for example 12*(3+4)=, and the answer appears after it. Also converts units: 5 km = gives miles.");
+			toggle("autoSolveGhost", "Show the answer first, press Tab to use it", "Instead of writing the answer straight away, auto solve shows it faded after the = and you press Tab to keep it. Keep typing to ignore it.");
+			toggle("realOperators", "Type * and / for × and ÷", "In a note, 3*4 becomes 3×4 and 8/2 becomes 8÷2 as you type. Press Backspace straight after to get the plain * or / back. Links, web addresses and dates are left alone.");
+			toggle("typePi", "Type pi for π", "In a note, pi on its own becomes π (inside maths it becomes \\pi). Words like pie and spin are left alone. If you delete a π and type pi again in the same place, it stays as pi.");
+			toggle("typeShortcuts", "Type 2/4 for a fraction", "In a note, 2/4 followed by a space becomes a fraction, sqrt(16) becomes a square root, and <= >= != +- -> become ≤ ≥ ≠ ± →. Letters such as alpha still use the symbols menu.");
+			toggle("symbolsSidebar", "Show the symbols menu in the left sidebar", "When off, the symbols menu opens as a pop-up instead.");
+			toggle("statusBar", "Maths buttons in the status bar", "The row of buttons at the bottom of the window on desktop.", () => this.plugin.setupStatusBar());
+			toggle("mobileToolbar", "Maths buttons in the mobile toolbar", "The row of buttons above the keyboard on iPad and iPhone.", (v) => (v ? this.plugin.addToMobileToolbar() : this.plugin.removeFromMobileToolbar()));
+		});
+
+		section("Citations", st.citeTool, () => {
+			new Setting(containerEl).setName("Referencing style").setDesc("The style new citation lists start with. You can change it in the Citations tab too.")
+				.addDropdown((d) => d.addOptions(STYLE_NAMES).setValue(s.citeStyle).onChange(async (v) => { s.citeStyle = v as CiteStyle; await this.plugin.saveSettings(); }));
+		});
+
+		section("Editor tab", st.editorTab, () => {
+			new Setting(containerEl).setName("Check spelling").setDesc("Show spelling mistakes in the Editor tab.")
+				.addToggle((t) => t.setValue(s.spellOn).onChange(async (v) => { s.spellOn = v; await this.plugin.saveSettings(); this.plugin.speller.onChange?.(); }));
+			new Setting(containerEl).setName("Spelling language").setDesc("The dictionary is downloaded the first time you use it and kept on this device.")
+				.addDropdown((d) => d.addOptions(SPELL_LANGS).setValue(s.spellLang).onChange(async (v) => { s.spellLang = v; await this.plugin.saveSettings(); this.plugin.speller.reset(); void this.plugin.speller.load(v); }));
+			toggle("spellSkipNames", "Don't flag names", "Skip capitalised words in the middle of a sentence, like Leroy or Perth, so names aren't marked as mistakes.", () => this.plugin.speller.onChange?.());
+			new Setting(containerEl).setName("My words").setDesc("Words the spell checker should accept, one per line. Add one from the Editor tab with the book button.")
+				.addTextArea((t) => { t.setValue(s.myWords.join("\n")).onChange((v) => { s.myWords = [...new Set(v.split("\n").map((x) => x.trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y)); this.plugin.speller.setWords(s.myWords); }); t.inputEl.rows = 4; });
+			new Setting(containerEl).setName("Word goal").setDesc("A number of words to aim for in a note. Leave empty for no goal. You can also set it in the Editor tab.")
+				.addText((t) => t.setPlaceholder("For example 500").setValue(s.wordGoal ? String(s.wordGoal) : "").onChange(async (v) => { s.wordGoal = Math.max(0, Math.floor(Number(v) || 0)); await this.plugin.saveSettings(); this.plugin.speller.onChange?.(); }));
+		});
+
+		section("Picture tools", st.imageTools, () => { /* no options: click a picture in Live Preview for crop, wrap and size buttons */ }, "In Live Preview, click a picture for buttons to crop it, wrap text on either side, centre it, or change its size. Drag a picture to move it: drop it on the left, middle or right of the page.");
+
+		section("Folder tags", st.folderTags, () => {
+			new Setting(containerEl).setName("Tag all your notes now").setDesc("Adds folder tags to every note already in the vault. You'll be asked first.")
+				.addButton((b) => b.setButtonText("Tag all notes").onClick(() => new TagAllModal(this.app).open()));
+		}, "New notes, and notes you move, get tags such as #school-work and #maths. When a note moves, the old folder tags come off. Other tags are left alone.");
+
+		section("PDFs and photos", st.pdfNotes || st.photoNotes, () => {
+			new Setting(containerEl).setName("What goes in a note made from a PDF")
+				.addDropdown((d) => d.addOptions({ text: "The PDF's text, keeping its headings, bold, italics and lists", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
+		}, "Dragging a PDF or photos from outside Obsidian onto the file list saves them and makes a note. iPhone HEIC photos are turned into JPEGs so they show everywhere.");
+
+		section("Cloud sync, OneDrive and share links", st.cloud, () => renderSyncSettings(containerEl, this.plugin, () => this.display(), false));
+
+		new Setting(containerEl).setName("New files").setHeading();
 		new Setting(containerEl).setName("Folder for new files").setDesc("Leave empty to use the same folder as new notes.")
 			.addText((t) => t.setPlaceholder("Example: Maths").setValue(s.newFileFolder).onChange(async (v) => { s.newFileFolder = v.trim().replace(/\/$/, ""); await this.plugin.saveSettings(); }));
-
-		new Setting(containerEl).setName("Maths").setHeading();
-		toggle("mathShortcuts", "Keyboard shortcuts", "Use the shortcuts listed below in notes, boards and spreadsheets.", (v) => this.plugin.applyShortcuts(v));
-		feature("symbolSearch", "Symbol search while typing", "Type \\ then a name, such as \\alpha or \\frac, to pick a symbol.");
-		toggle("superscriptTyping", "Type ^ for small raised numbers", "In a note, x^2 becomes x² as you type, and 10^-3 becomes 10⁻³. It isn't used inside maths, code or spreadsheets.");
-		toggle("autoSolve", "Auto solve", "In a note, type a sum and then =, for example 12*(3+4)=, and the answer appears after it. Also converts units: 5 km = gives miles.");
-		toggle("autoSolveGhost", "Show the answer first, press Tab to use it", "Instead of writing the answer straight away, auto solve shows it faded after the = and you press Tab to keep it. Keep typing to ignore it.");
-		toggle("realOperators", "Type * and / for × and ÷", "In a note, 3*4 becomes 3×4 and 8/2 becomes 8÷2 as you type. Press Backspace straight after to get the plain * or / back. Links, web addresses and dates are left alone.");
-		toggle("typePi", "Type pi for π", "In a note, pi on its own becomes π (inside maths it becomes \\pi). Words like pie and spin are left alone. If you delete a π and type pi again in the same place, it stays as pi.");
-		toggle("typeShortcuts", "Type 2/4 for a fraction", "In a note, 2/4 followed by a space becomes a fraction, sqrt(16) becomes a square root, and <= >= != +- -> become ≤ ≥ ≠ ± →. Letters such as alpha still use the symbols menu.");
-		toggle("symbolsSidebar", "Show the symbols menu in the left sidebar", "When off, the symbols menu opens as a pop-up instead.");
-		toggle("statusBar", "Maths buttons in the status bar", "The row of buttons at the bottom of the window on desktop.", () => this.plugin.setupStatusBar());
-		toggle("mobileToolbar", "Maths buttons in the mobile toolbar", "The row of buttons above the keyboard on iPad and iPhone.", (v) => (v ? this.plugin.addToMobileToolbar() : this.plugin.removeFromMobileToolbar()));
-
-		new Setting(containerEl).setName("Drawing").setHeading();
-		toggle("fingerDraws", "Draw with your finger", "When off, fingers only move and zoom the board.");
-		toggle("pencilOnlyAfterPen", "Palm rejection", "Once a stylus such as Apple Pencil touches the board, fingers and palms pan instead of drawing.");
-		toggle("pressure", "Pressure sensitivity", "Press harder for thicker lines with a stylus.");
-		new Setting(containerEl).setName("Default pen size")
-			.addDropdown((d) => d.addOptions({ "2": "Fine", "4": "Medium", "8": "Bold", "14": "Marker" }).setValue(String(s.penSize)).onChange(async (v) => { s.penSize = parseInt(v); await this.plugin.saveSettings(); }));
-		new Setting(containerEl).setName("Background for new boards")
-			.addDropdown((d) => d.addOptions({ grid: "Grid", dots: "Dots", lines: "Lined", plain: "Plain" }).setValue(s.defaultBg).onChange(async (v) => { s.defaultBg = v as Bg; await this.plugin.saveSettings(); }));
-		toggle("shapeSnap", "Snap shapes when you hold the pen", "Draw a line, circle, rectangle or triangle, then hold the pen still at the end and it turns into a clean shape. Lines can then be aimed before you lift.");
-		new Setting(containerEl).setName("Hold time before snapping").setDesc("How long to hold the pen still.")
-			.addDropdown((d) => d.addOptions({ "400": "Short (0.4 s)", "600": "Normal (0.6 s)", "900": "Long (0.9 s)" }).setValue(String(s.snapHoldMs)).onChange(async (v) => { s.snapHoldMs = parseInt(v); await this.plugin.saveSettings(); }));
-		toggle("canvasDraw", "Draw straight onto Canvas cards", "When off, select the card first; drag cards by their title either way.", () => this.plugin.applyBodyClasses());
-		toggle("tbHighlighter", "Highlighter tool", "Show the highlighter in the board toolbar.");
-		toggle("tbShapes", "Shape tools", "Show rectangle, circle, line and arrow.");
-		toggle("tbMaths", "Maths tools", "Show the maths box and symbol buttons.");
-		toggle("tbGraph", "Graph tool", "Show the graph button.");
-		toggle("tbTrace", "Graph trace tool", "Show the button for reading values off a graph.");
-		toggle("tbChart", "Chart tool", "Show the button for making bar, line and pie charts from numbers you type.");
-		toggle("tbGuides", "Ruler and protractor", "Show the ruler and protractor buttons. Draw close to the ruler's edge and the line stays straight.");
-		toggle("tbLayers", "Layers", "Show the layers button for stacking, hiding and locking parts of a board.");
-		toggle("tbLasso", "Lasso tool", "Show the lasso button for circling things to select them.");
-		toggle("tbImages", "Image tool", "Show the add image button.");
-		containerEl.createDiv({ cls: "setting-item-description ms-note", text: "Toolbar changes apply to boards you open next." });
-
-		new Setting(containerEl).setName("Slides").setHeading();
-		toggle("speakerNotes", "Speaker notes", "Show the notes box under each slide.");
-		toggle("slideEffects", "Slide effects", "Themes, transitions between slides, and showing bullets or objects one click at a time.");
-		toggle("presentDraw", "Draw while presenting", "Pen, highlighter and laser pointer on top of the slide. Drawings are cleared when you finish.");
-		toggle("presentFullscreen", "Present in full screen", "On desktop, presenting fills the whole screen.");
-
-		new Setting(containerEl).setName("Spreadsheets").setHeading();
-		toggle("sheetAutocorrect", "Autocorrect and predictions", "Let the keyboard fix spelling and suggest words in cells. Usually best off for numbers and formulas.");
-		toggle("sheetFormat", "Formatting buttons", "Bold, italic, colours, alignment and number formats. Colours and bold are kept by this plugin; number formats are also saved in the Excel file.");
-		toggle("sheetFill", "Drag to fill", "A small square on the selection that you drag to continue numbers, dates like Mon and Tue, and formulas.");
-		toggle("sheetCharts", "Charts", "Make bar, line, pie and scatter charts from cells, shown next to the spreadsheet.");
-		toggle("sheetSuggest", "Suggest functions", "Typing =SU shows SUM and SUMSQ. Press Tab or Enter to pick one.");
-
-		new Setting(containerEl).setName("PDFs and photos").setHeading();
-		toggle("pdfNotes", "Drop a PDF on the file list to make a note", "Dragging a PDF from outside Obsidian onto the file list saves it and makes a new note from it. You can also right-click a PDF, or use the command Make a note from a PDF.");
-		toggle("photoNotes", "Drop photos on the file list to make a note", "Dragging photos from outside Obsidian onto the file list saves them and makes one note showing them all. iPhone HEIC photos are turned into JPEGs so they show everywhere.");
-		new Setting(containerEl).setName("What goes in a note made from a PDF")
-			.addDropdown((d) => d.addOptions({ text: "The PDF's text, keeping its headings, bold, italics and lists", embed: "The PDF itself, shown in the note" }).setValue(s.pdfNoteStyle).onChange(async (v) => { s.pdfNoteStyle = v as PdfNoteStyle; await this.plugin.saveSettings(); }));
-
-		new Setting(containerEl).setName("Notes").setHeading();
-		feature("citeTool", "Citations", "A citation maker in its own tab: fill in a website, book, article or video, pick APA, MLA, Harvard or Chicago, then copy them all or add them to slides or a note.");
-		feature("editorTab", "Editor tab", "A button in the left sidebar opens the Editor tab in the right sidebar: live word counts, reading time, how easy the note is to read, and spelling mistakes with their corrections.");
-		new Setting(containerEl).setName("Spelling language").setDesc("The dictionary is downloaded the first time you use it and kept on this device.")
-			.addDropdown((d) => d.addOptions(SPELL_LANGS).setValue(s.spellLang).onChange(async (v) => { s.spellLang = v; await this.plugin.saveSettings(); this.plugin.speller.reset(); void this.plugin.speller.load(v); }));
-		toggle("spellSkipNames", "Don't flag names", "Skip capitalised words in the middle of a sentence, like Leroy or Perth, so names aren't marked as mistakes.", () => this.plugin.speller.onChange?.());
-		new Setting(containerEl).setName("My words").setDesc("Words the spell checker should accept, one per line. Add one from the Editor tab with the book button.")
-			.addTextArea((t) => { t.setValue(s.myWords.join("\n")).onChange((v) => { s.myWords = [...new Set(v.split("\n").map((x) => x.trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y)); this.plugin.speller.setWords(s.myWords); }); t.inputEl.rows = 4; });
-		toggle("imageTools", "Crop, move and wrap pictures", "In Live Preview, click a picture for buttons to crop it, wrap text on either side, centre it, or change its size. Drag a picture to move it to another line. iPhone HEIC photos you drop or paste into a note are turned into JPEGs.");
-		toggle("folderTags", "Tag notes with their folders", "New notes, and notes you move, get tags for the folders they're in, such as #school-work and #maths. When a note moves, the old folder tags come off. Other tags are left alone.");
-		new Setting(containerEl).setName("Tag all your notes now").setDesc("Adds folder tags to every note already in the vault. You'll be asked first.")
-			.addButton((b) => b.setButtonText("Tag all notes").onClick(() => new TagAllModal(this.app).open()));
-
-		renderSyncSettings(containerEl, this.plugin, () => this.display());
-
-		new Setting(containerEl).setName("Other plugins").setHeading();
-		toggle("homeButtons", "Buttons on the Home + AI home screen", "If the Home + AI plugin is installed, add new board, slides and spreadsheet buttons to its home screen.", () => this.plugin.setupHomeButtons());
 
 		new Setting(containerEl).setName("Keyboard shortcuts").setHeading();
 		const table = containerEl.createDiv("ms-keys").createEl("table");

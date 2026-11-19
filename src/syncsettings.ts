@@ -49,7 +49,7 @@ const ago = (t: number): string => {
 const size = (n: number): string => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`);
 
 /** The "Cloud sync" part of the settings tab. `redraw` re-renders the whole tab. */
-export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: () => void) {
+export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs, redraw: () => void, heading = true) {
 	const app = plugin.app;
 	const cloud = plugin.cloud;
 	const od = plugin.onedrive;
@@ -57,7 +57,7 @@ export function renderSyncSettings(containerEl: HTMLElement, plugin: BitsAndBobs
 	const save = () => plugin.saveSettings();
 	od.onChange = redraw;
 
-	new Setting(containerEl).setName("Cloud sync").setHeading();
+	if (heading) new Setting(containerEl).setName("Cloud sync").setHeading();
 
 	// ---- Keyring (citations, shared links, and files if chosen)
 	if (!cloud.signedIn) {

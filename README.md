@@ -142,7 +142,11 @@ All commands can also be given your own hotkeys in **Settings → Hotkeys**.
 
 ## Settings
 
-Every feature has its own switch: boards, slides, spreadsheets, embeds, ribbon buttons, shortcuts, symbol search, small raised numbers, auto solve, the symbols sidebar, status bar and mobile toolbar buttons, finger drawing, palm rejection, pressure, snapping shapes (and how long to hold), each board tool (including layers, ruler and protractor), speaker notes, slide effects,, drawing while presenting, full-screen presenting, and for spreadsheets autocorrect, function suggestions, formatting, drag to fill and charts.
+The settings have two parts.
+
+**Features** (at the top) has one switch for every major feature: drawing boards, slides, spreadsheets, maths typing and symbols, citations, the Editor tab, picture tools, folder tags, PDF to note, photos to note, cloud sync with OneDrive and share links, showing boards, slides and spreadsheets inside notes and Canvas, ribbon buttons, and the Home + AI buttons. A feature you switch off disappears completely: its commands, menu items, buttons and tabs go, and nothing of it runs (cloud sync and sharing send nothing, and maths typing stops changing what you type).
+
+**Inside each feature** has a heading for each feature with everything you can change for it, for example pen size, palm rejection and the toolbar tools for drawing boards; speaker notes and slide effects for slides; formatting, drag to fill and charts for spreadsheets; each typing helper for maths; the spelling language, your own words and word goal for the Editor tab; and the OneDrive and Keyring options for cloud sync. If a feature is switched off, its heading just says so and its options are hidden. The keyboard shortcuts table is at the bottom.
 
 ## Notes
 

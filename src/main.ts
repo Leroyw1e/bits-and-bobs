@@ -55,7 +55,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings.shares = Array.isArray(this.settings.shares) ? this.settings.shares.map((l) => ({ ...l })) : [];
 		this.settings.source = Object.assign(JSON.parse(JSON.stringify(DEFAULT_SOURCE)) as SourceState, this.settings.source);
 		const st = this.settings;
-		setShortcutsEnabled(st.mathShortcuts);
+		setShortcutsEnabled(st.mathTyping && st.mathShortcuts);
 
 		if (st.boards) {
 			this.registerView(VIEW_BOARD, (leaf) => new BoardView(leaf, this));
@@ -105,7 +105,7 @@ export default class BitsAndBobs extends Plugin {
 		// maths: commands (no default hotkeys — the shortcuts are handled below and can be turned off)
 		for (const t of MATH_TOOLS) this.addMathCommand(t);
 		this.registerEditorExtension(ghostExtension());
-		if (st.symbolSearch) this.registerEditorSuggest(new MathSuggest(this.app));
+		if (st.mathTyping && st.symbolSearch) this.registerEditorSuggest(new MathSuggest(this.app));
 		this.registerDomEvent(window, "keydown", (e) => this.onKey(e));
 		// ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Y on Windows) whenever a board, deck or spreadsheet is the active tab
 		this.registerDomEvent(window, "keydown", (e) => this.onUndoKey(e), { capture: true });
@@ -176,30 +176,32 @@ export default class BitsAndBobs extends Plugin {
 		this.app.workspace.onLayoutReady(() => {
 			this.trackTarget(this.app.workspace.getMostRecentLeaf());
 			this.setupStatusBar();
-			if (Platform.isMobile && st.mobileToolbar && !st.mobileToolbarAdded) this.addToMobileToolbar(true);
+			if (Platform.isMobile && st.mathTyping && st.mobileToolbar && !st.mobileToolbarAdded) this.addToMobileToolbar(true);
 			this.setupHomeButtons();
 			this.applyBodyClasses();
 			if (st.embeds) this.registerEmbeds();
 		});
 
 		this.addSettingTab(new BitsSettingTab(this.app, this));
-		this.cloud.start();
-		this.onedrive.start();
-		this.source.start();
-		this.shares.start();
-		this.addCommand({
-			id: "share-file", name: "Share this file as a link", icon: "share-2",
-			checkCallback: (check) => {
-				const f = this.app.workspace.getActiveFile();
-				if (!f || !shareKind(f)) return false;
-				if (!check) this.openShare(f);
-				return true;
-			},
-		});
-		this.registerEvent(this.app.workspace.on("file-menu", (menu, f) => {
-			if (!(f instanceof TFile) || !shareKind(f)) return;
-			menu.addItem((i) => i.setTitle("Share as a link").setIcon("share-2").setSection("action").onClick(() => this.openShare(f)));
-		}));
+		if (st.cloud) {
+			this.cloud.start();
+			this.onedrive.start();
+			this.source.start();
+			this.shares.start();
+			this.addCommand({
+				id: "share-file", name: "Share this file as a link", icon: "share-2",
+				checkCallback: (check) => {
+					const f = this.app.workspace.getActiveFile();
+					if (!f || !shareKind(f)) return false;
+					if (!check) this.openShare(f);
+					return true;
+				},
+			});
+			this.registerEvent(this.app.workspace.on("file-menu", (menu, f) => {
+				if (!(f instanceof TFile) || !shareKind(f)) return;
+				menu.addItem((i) => i.setTitle("Share as a link").setIcon("share-2").setSection("action").onClick(() => this.openShare(f)));
+			}));
+		}
 	}
 
 	private onUndoKey(e: KeyboardEvent) {
@@ -238,7 +240,7 @@ export default class BitsAndBobs extends Plugin {
 		this.runTool(t);
 	}
 
-	applyShortcuts(on: boolean) { setShortcutsEnabled(on); }
+	applyShortcuts(on: boolean) { setShortcutsEnabled(on && this.settings.mathTyping); }
 
 	applyBodyClasses() { activeDocument.body.toggleClass("bb-canvas-draw", this.settings.canvasDraw); }
 
@@ -389,6 +391,7 @@ export default class BitsAndBobs extends Plugin {
 
 	private onBeforeInput(e: InputEvent) {
 		const st = this.settings;
+		if (!st.mathTyping) return;
 		if (e.inputType !== "insertText" || !e.data || e.data.length !== 1) { this.superTyper.reset(); return; }
 		if (!(e.target as HTMLElement | null)?.closest?.(".cm-content")) { this.superTyper.reset(); return; }
 		const c = e.data;
@@ -553,7 +556,7 @@ export default class BitsAndBobs extends Plugin {
 	setupStatusBar() {
 		this.statusItems.forEach((e) => e.remove());
 		this.statusItems = [];
-		if (!this.settings.statusBar || Platform.isMobile) return;
+		if (!this.settings.statusBar || !this.settings.mathTyping || Platform.isMobile) return;
 		const bar = this.addStatusBarItem();
 		bar.addClass("ms-statusbar");
 		this.statusItems.push(bar);

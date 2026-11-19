@@ -15,7 +15,7 @@ export class BoardView extends TextFileView {
 	private lastData = "";
 	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) {
 		super(leaf);
-		this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
+		if (plugin.settings.cloud) this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
 	}
 	getViewType() { return VIEW_BOARD; }
 	getIcon() { return "pen-tool"; }
@@ -76,7 +76,7 @@ export class SlidesView extends TextFileView {
 	private notesEl!: HTMLTextAreaElement;
 	constructor(leaf: WorkspaceLeaf, private plugin: BitsAndBobs) {
 		super(leaf);
-		this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
+		if (plugin.settings.cloud) this.addAction("share-2", "Share as a link", () => { if (this.file) this.plugin.openShare(this.file); });
 	}
 	getViewType() { return VIEW_SLIDES; }
 	getIcon() { return "presentation"; }

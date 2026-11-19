@@ -282,7 +282,7 @@ export class SheetView extends FileView {
 		btn("undo-2", "Undo (⌘Z)", () => this.restore(this.undoStack, this.redoStack));
 		btn("redo-2", "Redo (⇧⌘Z)", () => this.restore(this.redoStack, this.undoStack));
 		btn("clipboard-copy", "Copy selection as a Markdown table", () => { void this.copyMarkdown(); });
-		btn("share-2", "Share online as a link", () => { if (this.file) this.plugin.openShare(this.file); }, "Share");
+		if (this.plugin.settings.cloud) btn("share-2", "Share online as a link", () => { if (this.file) this.plugin.openShare(this.file); }, "Share");
 		const st = this.plugin.settings;
 		const ac = btn("spell-check", "Autocorrect & keyboard predictions (on/off)", () => {
 			st.sheetAutocorrect = !st.sheetAutocorrect; void this.plugin.saveSettings();
