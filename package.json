@@ -1,6 +1,6 @@
 {
   "name": "bits-and-bobs",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "description": "Obsidian plugin: drawing boards, slides, Excel spreadsheets and maths tools.",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,8 @@
     "typescript-eslint": "^8.72.2"
   },
   "dependencies": {
+    "@types/nspell": "^2.1.6",
+    "nspell": "^2.1.5",
     "perfect-freehand": "^1.2.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },

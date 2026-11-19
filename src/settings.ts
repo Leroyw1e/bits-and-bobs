@@ -4,6 +4,7 @@ import { MATH_TOOLS, shortcutLabel } from "./math";
 import type { Bg } from "./board";
 import type { PdfNoteStyle } from "./pdfnote";
 import { TagAllModal } from "./foldertags";
+import { SPELL_LANGS } from "./spell";
 import type { Citation, CiteStyle } from "./citeformat";
 import { DEFAULT_SYNC, type SyncSettings } from "./sync";
 import { DEFAULT_SOURCE, type SourceState } from "./sourcelists";
@@ -69,6 +70,12 @@ export interface BitsSettings {
 	citeStyle: CiteStyle;
 	citations: Citation[];
 	imageTools: boolean;
+	editorTab: boolean;
+	spellOn: boolean;
+	spellLang: string;
+	spellSkipNames: boolean;
+	myWords: string[];
+	wordGoal: number;
 	pdfNoteStyle: PdfNoteStyle;
 	newFileFolder: string;
 	sync: SyncSettings;
@@ -83,7 +90,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
+	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, editorTab: true, spellOn: true, spellLang: "en-AU", spellSkipNames: true, myWords: [], wordGoal: 0, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];
@@ -171,7 +178,13 @@ export class BitsSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Notes").setHeading();
 		feature("citeTool", "Citations", "A citation maker in its own tab: fill in a website, book, article or video, pick APA, MLA, Harvard or Chicago, then copy them all or add them to slides or a note.");
-		toggle("imageTools", "Move pictures and wrap text around them", "In Live Preview, click a picture for buttons to wrap text on either side, centre it, or change its size. Drag a picture to move it to another line.");
+		feature("editorTab", "Editor tab", "A button in the left sidebar opens the Editor tab in the right sidebar: live word counts, reading time, how easy the note is to read, and spelling mistakes with their corrections.");
+		new Setting(containerEl).setName("Spelling language").setDesc("The dictionary is downloaded the first time you use it and kept on this device.")
+			.addDropdown((d) => d.addOptions(SPELL_LANGS).setValue(s.spellLang).onChange(async (v) => { s.spellLang = v; await this.plugin.saveSettings(); this.plugin.speller.reset(); void this.plugin.speller.load(v); }));
+		toggle("spellSkipNames", "Don't flag names", "Skip capitalised words in the middle of a sentence, like Leroy or Perth, so names aren't marked as mistakes.", () => this.plugin.speller.onChange?.());
+		new Setting(containerEl).setName("My words").setDesc("Words the spell checker should accept, one per line. Add one from the Editor tab with the book button.")
+			.addTextArea((t) => { t.setValue(s.myWords.join("\n")).onChange((v) => { s.myWords = [...new Set(v.split("\n").map((x) => x.trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y)); this.plugin.speller.setWords(s.myWords); }); t.inputEl.rows = 4; });
+		toggle("imageTools", "Crop, move and wrap pictures", "In Live Preview, click a picture for buttons to crop it, wrap text on either side, centre it, or change its size. Drag a picture to move it to another line. iPhone HEIC photos you drop or paste into a note are turned into JPEGs.");
 		toggle("folderTags", "Tag notes with their folders", "New notes, and notes you move, get tags for the folders they're in, such as #school-work and #maths. When a note moves, the old folder tags come off. Other tags are left alone.");
 		new Setting(containerEl).setName("Tag all your notes now").setDesc("Adds folder tags to every note already in the vault. You'll be asked first.")
 			.addButton((b) => b.setButtonText("Tag all notes").onClick(() => new TagAllModal(this.app).open()));

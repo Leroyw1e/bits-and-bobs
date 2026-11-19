@@ -23,6 +23,8 @@ import { CloudSync, DEFAULT_OD, DEFAULT_SYNC } from "./sync";
 import { OneDrive } from "./onedrive";
 import { DEFAULT_SOURCE, SourceLists, type SourceState } from "./sourcelists";
 import { ShareModal, Shares } from "./share";
+import { EditorPanel, VIEW_EDITOR } from "./editorpanel";
+import { Speller } from "./spell";
 import { shareKind } from "./sharecapture";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
@@ -35,6 +37,7 @@ export default class BitsAndBobs extends Plugin {
 	onedrive = new OneDrive(this);
 	source = new SourceLists(this);
 	shares = new Shares(this);
+	speller = new Speller(this);
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
@@ -46,6 +49,7 @@ export default class BitsAndBobs extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<BitsSettings> | null);
 		this.settings.sync = Object.assign({}, DEFAULT_SYNC, this.settings.sync);
 		this.settings.sync.paths = [...this.settings.sync.paths];
+		this.settings.myWords = [...(this.settings.myWords ?? [])];
 		this.settings.sync.exclude = [...(this.settings.sync.exclude ?? [])];
 		this.settings.sync.od = Object.assign({}, DEFAULT_OD, this.settings.sync.od);
 		this.settings.shares = Array.isArray(this.settings.shares) ? this.settings.shares.map((l) => ({ ...l })) : [];
@@ -130,6 +134,11 @@ export default class BitsAndBobs extends Plugin {
 			this.registerView(VIEW_CITE, (leaf) => new CiteView(leaf, this));
 			if (st.ribbon) this.addRibbonIcon("quote", "Citations", () => { void this.openCitations(); });
 			this.addCommand({ id: "open-citations", name: "Open citations", icon: "quote", callback: () => { void this.openCitations(); } });
+		}
+		if (st.editorTab) {
+			this.registerView(VIEW_EDITOR, (leaf) => new EditorPanel(leaf, this));
+			if (st.ribbon) this.addRibbonIcon("pencil-line", "Editor", () => { void this.openEditor(); });
+			this.addCommand({ id: "open-editor-tab", name: "Open the Editor tab", icon: "pencil-line", callback: () => { void this.openEditor(); } });
 		}
 		this.addCommand({ id: "open-symbols", name: "Open the symbols menu", icon: "pi", callback: () => this.openSymbols(0) });
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this.trackTarget(leaf)));
@@ -463,6 +472,16 @@ export default class BitsAndBobs extends Plugin {
 			e.preventDefault(); e.stopPropagation();
 			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
 		}
+	}
+
+	// ---------- the Editor tab ----------
+	async openEditor() {
+		const ws = this.app.workspace;
+		const existing = ws.getLeavesOfType(VIEW_EDITOR)[0];
+		const leaf = existing ?? ws.getRightLeaf(false);
+		if (!leaf) return;
+		if (!existing) await leaf.setViewState({ type: VIEW_EDITOR, active: true });
+		await ws.revealLeaf(leaf);
 	}
 
 	// ---------- citations ----------
