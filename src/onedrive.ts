@@ -342,6 +342,7 @@ export class OneDrive {
 		if (/^workspace[^/]*\.json$/.test(rel)) return true;
 		if (rel === "cache" || rel.startsWith("cache/") || rel === ".trash" || rel.startsWith(".trash/")) return true;
 		if (rel.endsWith(".DS_Store")) return true;
+		if (path.startsWith(`${dir}/history/`)) return true; // file history stays on this device
 		if (path.startsWith(`${dir}/dictionaries/`)) return true; // spelling dictionaries are downloaded again on each device
 		return [`${dir}/data.json`, `${dir}/onedrive-state.json`, `${dir}/sync-state.json`, `${dir}/shares-state.json`].includes(path);
 	}

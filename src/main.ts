@@ -25,6 +25,8 @@ import { DEFAULT_SOURCE, SourceLists, type SourceState } from "./sourcelists";
 import { ShareModal, Shares } from "./share";
 import { EditorPanel, VIEW_EDITOR } from "./editorpanel";
 import { Speller } from "./spell";
+import { History } from "./history";
+import { HistoryView, VIEW_HISTORY } from "./historyview";
 import { shareKind } from "./sharecapture";
 import { PdfPicker, dropFolder, isPhoto, noPdfs, noteFromDroppedPdf, noteFromDroppedPhotos, noteFromPdf } from "./pdfnote";
 
@@ -38,6 +40,7 @@ export default class BitsAndBobs extends Plugin {
 	source = new SourceLists(this);
 	shares = new Shares(this);
 	speller = new Speller(this);
+	history = new History(this);
 	private registeredExts: string[] = [];
 	private statusItems: HTMLElement[] = [];
 	private homeObserver: MutationObserver | null = null;
@@ -134,6 +137,25 @@ export default class BitsAndBobs extends Plugin {
 			this.registerView(VIEW_CITE, (leaf) => new CiteView(leaf, this));
 			if (st.ribbon) this.addRibbonIcon("quote", "Citations", () => { void this.openCitations(); });
 			this.addCommand({ id: "open-citations", name: "Open citations", icon: "quote", callback: () => { void this.openCitations(); } });
+		}
+		if (st.fileHistory) {
+			this.registerView(VIEW_HISTORY, (leaf) => new HistoryView(leaf, this));
+			this.history.start();
+			if (st.ribbon) this.addRibbonIcon("history", "File history", () => { void this.openHistory(); });
+			this.addCommand({
+				id: "show-history", name: "Show the history of this file", icon: "history",
+				checkCallback: (check) => {
+					const f = this.app.workspace.getActiveFile();
+					if (!f || !this.history.tracked(f.path)) return false;
+					if (!check) void this.openHistory(f.path);
+					return true;
+				},
+			});
+			this.addCommand({ id: "browse-history", name: "Browse the history of any file, including deleted ones", icon: "history", callback: () => { void this.openHistory(); } });
+			this.registerEvent(this.app.workspace.on("file-menu", (menu, f) => {
+				if (!(f instanceof TFile) || !this.history.tracked(f.path)) return;
+				menu.addItem((i) => i.setTitle("File history").setIcon("history").setSection("action").onClick(() => { void this.openHistory(f.path); }));
+			}));
 		}
 		if (st.editorTab) {
 			this.registerView(VIEW_EDITOR, (leaf) => new EditorPanel(leaf, this));
@@ -475,6 +497,15 @@ export default class BitsAndBobs extends Plugin {
 			e.preventDefault(); e.stopPropagation();
 			editor.replaceSelection("=" + (/\s$/.test(line) ? " " : "") + answer);
 		}
+	}
+
+	// ---------- file history ----------
+	async openHistory(path?: string) {
+		const ws = this.app.workspace;
+		const p = path ?? ws.getActiveFile()?.path ?? "";
+		const leaf = ws.getLeavesOfType(VIEW_HISTORY)[0] ?? ws.getLeaf("tab");
+		await leaf.setViewState({ type: VIEW_HISTORY, active: true, state: { path: this.history.hasHistory(p) ? p : "" } });
+		await ws.revealLeaf(leaf);
 	}
 
 	// ---------- the Editor tab ----------

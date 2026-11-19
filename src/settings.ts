@@ -1,10 +1,11 @@
-import { App, Platform, PluginSettingTab, Setting } from "obsidian";
+import { App, Platform, PluginSettingTab, Setting, Notice } from "obsidian";
 import type BitsAndBobs from "./main";
 import { MATH_TOOLS, shortcutLabel } from "./math";
 import type { Bg } from "./board";
 import type { PdfNoteStyle } from "./pdfnote";
 import { TagAllModal } from "./foldertags";
 import { SPELL_LANGS } from "./spell";
+import { ConfirmBox } from "./historyview";
 import { STYLE_NAMES } from "./citeformat";
 import type { Citation, CiteStyle } from "./citeformat";
 import { DEFAULT_SYNC, type SyncSettings } from "./sync";
@@ -72,6 +73,9 @@ export interface BitsSettings {
 	citations: Citation[];
 	imageTools: boolean;
 	editorTab: boolean;
+	/** keep every save of notes, boards, decks and spreadsheets on this device */
+	fileHistory: boolean;
+	history: { notes: boolean; boards: boolean; sheets: boolean; other: boolean };
 	/** master switch for typing helpers (shortcuts, auto solve, ^, pi, fractions, symbol search, maths buttons) */
 	mathTyping: boolean;
 	/** master switch for Keyring and OneDrive sync, share links and Source lists */
@@ -95,7 +99,7 @@ export const DEFAULT_SETTINGS: BitsSettings = {
 	tbHighlighter: true, tbShapes: true, tbMaths: true, tbGraph: true, tbImages: true, tbLasso: true, tbTrace: true, tbChart: true, tbGuides: true, tbLayers: true, shapeSnap: true, snapHoldMs: 600,
 	speakerNotes: true, presentFullscreen: true, presentDraw: true, slideEffects: true,
 	sheetAutocorrect: false, sheetSuggest: true, sheetFormat: true, sheetFill: true, sheetCharts: true, superscriptTyping: true, autoSolve: true, autoSolveGhost: false, typeShortcuts: true, realOperators: true, typePi: true, symbolsSidebar: true,
-	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, editorTab: true, mathTyping: true, cloud: true, spellOn: true, spellLang: "en-AU", spellSkipNames: true, myWords: [], wordGoal: 0, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
+	homeButtons: true, pdfNotes: true, photoNotes: true, folderTags: true, citeTool: true, citeStyle: "apa", citations: [], imageTools: true, editorTab: true, fileHistory: true, history: { notes: true, boards: true, sheets: true, other: false }, mathTyping: true, cloud: true, spellOn: true, spellLang: "en-AU", spellSkipNames: true, myWords: [], wordGoal: 0, pdfNoteStyle: "text", newFileFolder: "", sync: DEFAULT_SYNC, source: DEFAULT_SOURCE, shares: [],
 };
 
 type BoolKey = { [K in keyof BitsSettings]: BitsSettings[K] extends boolean ? K : never }[keyof BitsSettings];
@@ -138,6 +142,7 @@ export class BitsSettingTab extends PluginSettingTab {
 		feature("mathTyping", "Maths typing and symbols", "Keyboard shortcuts, symbol search, auto solve, type ^ for powers, pi, fractions, real × and ÷ signs, and the maths buttons.");
 		feature("citeTool", "Citations", "A citation maker in its own tab: websites, books, articles and videos in APA, MLA, Harvard or Chicago.");
 		feature("editorTab", "Editor tab", "Live word counts, reading time, how easy the note is to read, and spelling mistakes with their corrections, in the right sidebar.");
+		feature("fileHistory", "File history", "Keeps every save of your notes, boards, slides and spreadsheets on this device, so you can see what you added each year, month, day, hour, minute or second, and go back to any version.");
 		switchOn("imageTools", "Picture tools", "Crop, move and wrap pictures in notes, and turn dropped or pasted iPhone HEIC photos into JPEGs.");
 		switchOn("folderTags", "Folder tags", "New notes, and notes you move, get tags for the folders they're in.");
 		switchOn("pdfNotes", "PDF to note", "Drop a PDF on the file list to make a note from it.");
@@ -221,6 +226,18 @@ export class BitsSettingTab extends PluginSettingTab {
 			new Setting(containerEl).setName("Word goal").setDesc("A number of words to aim for in a note. Leave empty for no goal. You can also set it in the Editor tab.")
 				.addText((t) => t.setPlaceholder("For example 500").setValue(s.wordGoal ? String(s.wordGoal) : "").onChange(async (v) => { s.wordGoal = Math.max(0, Math.floor(Number(v) || 0)); await this.plugin.saveSettings(); this.plugin.speller.onChange?.(); }));
 		});
+
+		section("File history", st.fileHistory, () => {
+			const track = (key: "notes" | "boards" | "sheets" | "other", name: string, desc: string) =>
+				new Setting(containerEl).setName(name).setDesc(desc).addToggle((t) => t.setValue(s.history[key]).onChange(async (v) => { s.history[key] = v; await this.plugin.saveSettings(); if (v) void this.plugin.history.scan(); }));
+			track("notes", "Notes", "Every change to your notes (.md files).");
+			track("boards", "Boards and slides", "Every save of drawing boards and slide decks.");
+			track("sheets", "Spreadsheets", "A copy of each spreadsheet, at most one every 10 seconds while you work.");
+			track("other", "Other text files", "Canvas, text, CSV and JSON files.");
+			const use = new Setting(containerEl).setName("Space used").setDesc("Working it out…")
+				.addButton((b) => b.setButtonText("Clear all history").setClass("mod-warning").onClick(() => new ConfirmBox(this.app, "Clear all history?", "Every recorded version of every file will be deleted from this device. Your notes and files stay as they are.", "", "Clear it", async () => { await this.plugin.history.clearAll(); new Notice("History cleared."); this.display(); }).open()));
+			void this.plugin.history.size().then((n) => use.setDesc(`${n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`} on this device, for ${this.plugin.history.files().length} files. It's kept in this plugin's folder and never uploaded by this plugin or synced to OneDrive.`));
+		}, "History starts from the moment it's switched on and keeps every change after that. Open it with the command Show the history of this file, or right-click a file and choose File history.");
 
 		section("Picture tools", st.imageTools, () => { /* no options: click a picture in Live Preview for crop, wrap and size buttons */ }, "In Live Preview, click a picture for buttons to crop it, wrap text on either side, centre it, or change its size. Drag a picture to move it: drop it on the left, middle or right of the page.");
 
